@@ -52,13 +52,18 @@ const Scanner = (() => {
     return c;
   }
 
-  /* Ein Dekodierer taugt nur, wenn er auf einem leeren Bild ordentlich
-     nichts findet, statt an einer fehlenden Methode zu zerschellen. */
+  /* ZXings Ausnahmen erben nicht von Error und tragen kein .name — sie
+     haben ein eigenes "kind". Deshalb wird andersherum geprüft: nur echte
+     JavaScript-Laufzeitfehler bedeuten "der Dekodierer ist kaputt".
+     Alles andere ist die übliche Art zu sagen "hier ist nichts". */
+  function broken(e) {
+    return e instanceof TypeError || e instanceof ReferenceError || e instanceof SyntaxError;
+  }
+
   async function usable(fn) {
     try { await fn(blankCanvas()); return true; }
     catch (e) {
-      const name = (e && (e.name || '')) + '';
-      if (/NotFound|Checksum|Format/i.test(name)) return true;  // erwartetes Nichts
+      if (!broken(e)) return true;
       console.warn('Dekodierer unbrauchbar:', e);
       return false;
     }
@@ -69,7 +74,7 @@ const Scanner = (() => {
   async function buildDecoder() {
     const want = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf'];
 
-    // 1. Vom Browser mitgeliefert (Android/Chrome, Safari kann das nicht)
+    // 1. Vom Browser mitgeliefert (Android/Chrome; Safari kann das nicht)
     if ('BarcodeDetector' in window) {
       try {
         const have = await window.BarcodeDetector.getSupportedFormats();
@@ -85,6 +90,20 @@ const Scanner = (() => {
       } catch (e) { /* weiter zu ZXing */ }
     }
 
+    // 2. Der eigene Leser. Braucht kein Internet, kein CDN, keine
+    //    fremde API — und ist der einzige Zweig, der hier geprüft werden
+    //    konnte. Deckt EAN-13, EAN-8 und UPC-A ab; mehr trägt kein
+    //    Lebensmittel.
+    if (typeof EAN !== 'undefined') {
+      const fn = canvas => {
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        return EAN.decode(img, { rotate: canvas.width <= 1100 });
+      };
+      if (await usable(fn)) { engine = 'EAN (eingebaut)'; return fn; }
+    }
+
+    // 3. ZXing als Zugabe, falls doch einmal ein anderer Code auftaucht
     const ZX = await getZXing();
     if (!ZX) return null;
 
@@ -98,7 +117,7 @@ const Scanner = (() => {
       hints.set(ZX.DecodeHintType.TRY_HARDER, true);
     }
 
-    // 2. ZXing über die einfachen Bausteine — die gibt es in jeder Fassung
+    // 3a. ZXing über die einfachen Bausteine — die gibt es in jeder Fassung
     if (ZX.MultiFormatReader && ZX.HTMLCanvasElementLuminanceSource &&
         ZX.HybridBinarizer && ZX.BinaryBitmap) {
       const reader = new ZX.MultiFormatReader();
@@ -111,15 +130,14 @@ const Scanner = (() => {
           return res ? res.getText() : null;
         } catch (e) {
           if (reader.reset) reader.reset();
-          const name = (e && (e.name || '')) + '';
-          if (/NotFound|Checksum|Format/i.test(name)) return null;
-          throw e;
+          if (broken(e)) throw e;
+          return null;                       // nichts gefunden, ganz normal
         }
       };
       if (await usable(fn)) { engine = 'ZXing (MultiFormatReader)'; return fn; }
     }
 
-    // 3. ZXing über den bequemen Weg, falls es ihn hier gibt
+    // 3b. ZXing über den bequemen Weg, falls es ihn hier gibt
     if (ZX.BrowserMultiFormatReader) {
       const br = new ZX.BrowserMultiFormatReader(hints);
       if (typeof br.decodeFromCanvas === 'function') {
@@ -128,9 +146,8 @@ const Scanner = (() => {
             const res = br.decodeFromCanvas(canvas);
             return res ? res.getText() : null;
           } catch (e) {
-            const name = (e && (e.name || '')) + '';
-            if (/NotFound|Checksum|Format/i.test(name)) return null;
-            throw e;
+            if (broken(e)) throw e;
+            return null;                     // nichts gefunden, ganz normal
           }
         };
         if (await usable(fn)) { engine = 'ZXing (BrowserMultiFormatReader)'; return fn; }
