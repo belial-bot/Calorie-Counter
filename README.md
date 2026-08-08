@@ -1,6 +1,6 @@
 # Calorie-Counter
 
-Ein Kalorienzähler als installierbare Web-App. Keine Werbung, kein Konto, kein Abo. Reines HTML, CSS und JavaScript.
+Ein Kalorienzähler als installierbare Web-App.
 
 ---
 
