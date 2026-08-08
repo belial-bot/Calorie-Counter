@@ -3,7 +3,7 @@
    Version hochzählen, wenn du Dateien änderst.
    ========================================================= */
 
-const VERSION = 'zettel-v6';
+const VERSION = 'zettel-v7';
 const SHELL = `${VERSION}-shell`;
 const RUNTIME = `${VERSION}-runtime`;
 
@@ -15,6 +15,7 @@ const FILES = [
   './js/i18n.js',
   './js/search.js',
   './js/off.js',
+  './js/ean.js',
   './js/scanner.js',
   './js/app.js',
   './manifest.webmanifest',
