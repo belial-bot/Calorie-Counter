@@ -3,7 +3,7 @@
    Version hochzählen, wenn du Dateien änderst.
    ========================================================= */
 
-const VERSION = 'zettel-v5';
+const VERSION = 'zettel-v6';
 const SHELL = `${VERSION}-shell`;
 const RUNTIME = `${VERSION}-runtime`;
 
