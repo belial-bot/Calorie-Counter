@@ -84,6 +84,8 @@ const I18n = (() => {
       'off.pack': 'Packung ({g} g)',
 
       'scan.hint': 'Barcode ins Feld halten',
+      'scan.tip': 'Etwas weiter weg halten, bis der Barcode scharf ist — und auf Licht achten.',
+      'scan.diag': 'Klappt nicht? Kamera: {info}. Tipp mit auf „Nummer tippen“.',
       'scan.cancel': 'Abbrechen',
       'scan.manual': 'Nummer tippen',
       'scan.prompt': 'Nummer unter dem Barcode eintippen:',
@@ -206,6 +208,8 @@ const I18n = (() => {
       'off.pack': 'Package ({g} g)',
 
       'scan.hint': 'Hold the barcode inside the frame',
+      'scan.tip': 'Move a little further back until the barcode looks sharp — and mind the light.',
+      'scan.diag': 'Still nothing? Camera: {info}. Fall back to "Type the number".',
       'scan.cancel': 'Cancel',
       'scan.manual': 'Type the number',
       'scan.prompt': 'Type the number printed under the barcode:',

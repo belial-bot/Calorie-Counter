@@ -439,7 +439,9 @@
     $('.scan-wrap').classList.remove('is-error');
     $('#scan-hint').textContent = t('scan.hint');
     try {
-      await Scanner.start(video, onBarcode);
+      await Scanner.start(video, onBarcode, (key, vars) => {
+        if (!sheetScan.hidden) $('#scan-hint').textContent = t(key, vars);
+      });
     } catch (e) {
       const known = ['insecure', 'unsupported', 'denied', 'nocamera', 'nodecoder'];
       $('.scan-wrap').classList.add('is-error');
