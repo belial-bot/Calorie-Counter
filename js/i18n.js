@@ -85,9 +85,11 @@ const I18n = (() => {
 
       'scan.hint': 'Barcode ins Feld halten',
       'scan.tip': 'Etwas weiter weg halten, bis der Barcode scharf ist — und auf Licht achten.',
+      'scan.hold': 'Ruhig halten …',
       'scan.diag': 'Klappt nicht? Kamera: {info}. Tipp mit auf „Nummer tippen“.',
       'scan.cancel': 'Abbrechen',
       'scan.manual': 'Nummer tippen',
+      'scan.torch': 'Licht',
       'scan.prompt': 'Nummer unter dem Barcode eintippen:',
       'scan.found': 'Gefunden: {code} — wird nachgeschlagen …',
       'scan.err.insecure': 'Die Kamera geht nur über HTTPS. Öffne die App über ihre Web-Adresse, nicht als lokale Datei.',
@@ -231,9 +233,11 @@ const I18n = (() => {
 
       'scan.hint': 'Hold the barcode inside the frame',
       'scan.tip': 'Move a little further back until the barcode looks sharp — and mind the light.',
+      'scan.hold': 'Hold still …',
       'scan.diag': 'Still nothing? Camera: {info}. Fall back to "Type the number".',
       'scan.cancel': 'Cancel',
       'scan.manual': 'Type the number',
+      'scan.torch': 'Light',
       'scan.prompt': 'Type the number printed under the barcode:',
       'scan.found': 'Found: {code} — looking it up …',
       'scan.err.insecure': 'The camera only works over HTTPS. Open the app at its web address, not as a local file.',

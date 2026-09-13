@@ -619,14 +619,20 @@
 
   $('#act-scan').addEventListener('click', startScan);
 
+  const torchBtn = $('#scan-torch');
+
   async function startScan() {
     sheetScan.hidden = false;
     $('.scan-wrap').classList.remove('is-error');
     $('#scan-hint').textContent = t('scan.hint');
+    torchBtn.hidden = true;
+    torchBtn.setAttribute('aria-pressed', 'false');
     try {
       await Scanner.start(video, onBarcode, (key, vars) => {
         if (!sheetScan.hidden) $('#scan-hint').textContent = t(key, vars);
       });
+      // Licht nur anbieten, wo die Kamera eins hat
+      torchBtn.hidden = !Scanner.hasTorch;
     } catch (e) {
       const known = ['insecure', 'unsupported', 'denied', 'nocamera', 'nodecoder'];
       $('.scan-wrap').classList.add('is-error');
@@ -634,8 +640,15 @@
     }
   }
 
+  torchBtn.addEventListener('click', async () => {
+    const on = !Scanner.torchOn;
+    if (await Scanner.torch(on)) torchBtn.setAttribute('aria-pressed', String(on));
+    else torchBtn.hidden = true;
+  });
+
   function stopScan() {
     Scanner.stop(video);
+    torchBtn.hidden = true;
     sheetScan.hidden = true;
   }
 
@@ -895,6 +908,10 @@
   renderLang();
   renderRegion();
   renderToday();
+
+  // Den Barcode-Leser laden, solange niemand darauf wartet. Beim
+  // Antippen von „Scannen" ist dann nur noch die Kamera zu öffnen.
+  Scanner.warmup();
 
   if ('serviceWorker' in navigator) {
     const hadController = !!navigator.serviceWorker.controller;
