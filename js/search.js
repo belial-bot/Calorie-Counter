@@ -64,6 +64,42 @@ const Rank = (() => {
     return lev(a, b, max) <= max;
   }
 
+  /* ---------- Ein- und Mehrzahl ----------
+     Tomate/Tomaten, Nuss/Nüsse, Brot/Brote: im Deutschen hängt die
+     Mehrzahl hinten dran. Ein grober Schnitt reicht, solange er auf
+     beiden Seiten gleich grob ist — er zählt ohnehin nur als
+     Rückfall, hinter der genauen Übereinstimmung. */
+
+  function stem(w) {
+    if (w.length > 5 && w.endsWith('ern')) return w.slice(0, -3);
+    if (w.length > 4 && /(en|er|es|em|se)$/.test(w)) return w.slice(0, -2);
+    if (w.length > 3 && /[ens]$/.test(w)) return w.slice(0, -1);
+    return w;
+  }
+
+  /* ---------- Zusammensetzungen ----------
+     "Hähnchenbrustfilet" ist "Hähnchenbrust" und "Filet". Mal steht
+     es im Namen zusammen, mal getrennt — und wie der Nutzer es
+     tippt, ist noch einmal eine dritte Sache. Zerlegt wird deshalb
+     in beide Richtungen: Wie viel des getippten Wortes lässt sich
+     aus den Wörtern des Namens zusammensetzen?
+
+     Ohne das fiel bisher jede zusammengeschriebene Eingabe durch:
+     "Haferflocken" traf "Hafer Flocken" mit null Punkten und flog
+     damit ganz aus der Liste. */
+
+  function compound(qt, words) {
+    if (qt.length < 6) return null;
+    let covered = 0;
+    const used = [];
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      if (w.length >= 4 && qt.includes(w)) { covered += w.length; used.push(i); }
+    }
+    if (!used.length) return null;
+    return { score: Math.min(1, covered / qt.length), used };
+  }
+
   /* ---------- Der Kern: ein Suchwort gegen ein Wort im Namen ----------
      Ein ganzes Wort zählt voll. Ein Wortanfang zählt halb, denn im
      Deutschen fängt "Eis" mit "Ei" an und "Orangensaft" mit "Orange" —
@@ -74,12 +110,20 @@ const Rank = (() => {
   function wordMatch(q, w) {
     if (q === w) return 1;
     if (fuzzyOk(q, w)) return 0.85;
+    // Mehrzahl und Fälle: Tomaten ist Tomate. Zählt fast voll, aber
+    // eben nicht ganz — wer genau tippt, soll genau finden.
+    if (q.length >= 3 && w.length >= 3 && stem(q) === stem(w)) return 0.8;
     // Im Deutschen steht das Grundwort hinten: Vollmilch ist Milch,
     // Milchschnitte ist eine Schnitte. Ein Wortende wiegt deshalb
     // deutlich schwerer als ein Wortanfang.
-    if (q.length >= 4 && w.endsWith(q)) return 0.7;
-    if (q.length >= 4 && w.startsWith(q)) return 0.5;
+    if (q.length >= 3 && w.endsWith(q)) return 0.7;
+    if (q.length >= 3 && w.startsWith(q)) return 0.5;
     if (q.length >= 4 && w.includes(q)) return 0.3;
+    // Und dieselbe Überlegung andersherum, denn das längere Wort
+    // steht mal in der Eingabe und mal im Namen: wer "Hähnchenbrust"
+    // tippt, meint auch das "Hähnchenbrustfilet".
+    if (w.length >= 4 && q.endsWith(w)) return 0.6;
+    if (w.length >= 4 && q.startsWith(w)) return 0.45;
     return 0;
   }
 
@@ -106,6 +150,19 @@ const Rank = (() => {
         const v = wordMatch(qt, bt) * 0.95;
         if (v > best) { best = v; at = -1; }
       }
+
+      // Lässt sich das getippte Wort aus mehreren Wörtern des Namens
+      // zusammensetzen, zählen die alle als getroffen. Der Abschlag
+      // hält die zerlegte Schreibweise hinter der wörtlichen: wer
+      // "Hähnchenbrustfilet" tippt, bekommt zuerst das Produkt, das
+      // auch so heißt — das getrennt geschriebene gleich dahinter.
+      const comp = compound(qt, nameC);
+      if (comp && comp.score * 0.75 > best) {
+        best = comp.score * 0.75;
+        at = -1;
+        comp.used.forEach(i => { hit[i] = Math.max(hit[i], best); });
+      }
+
       sum += best;
       if (at >= 0) hit[at] = Math.max(hit[at], best);
     }
@@ -146,7 +203,10 @@ const Rank = (() => {
   /* ---------- Gesamtwertung ---------- */
 
   function score(item, q) {
-    const cov = coverage(q.tokens, tokens(item.name), tokens(item.brand));
+    // "Milch 3,5" sucht Milch. Die nackte Zahl sagt über das
+    // Lebensmittel nichts und würde die Deckung nur verwässern.
+    const qt = q.content || content(q.tokens);
+    const cov = coverage(qt.length ? qt : q.tokens, tokens(item.name), tokens(item.brand));
     if (cov.q <= 0) return -Infinity;      // kein Suchwort getroffen: raus
 
     // Die Deckung trägt die Rangfolge. Was in der Eingabe steht, muss im
@@ -173,14 +233,42 @@ const Rank = (() => {
     const nameC = content(tokens(item.name));
     const brandT = tokens(item.brand);
     return qt.every(x =>
-      nameC.some(w => wordMatch(x, w) > 0) || brandT.some(w => wordMatch(x, w) > 0));
+      nameC.some(w => wordMatch(x, w) > 0) ||
+      brandT.some(w => wordMatch(x, w) > 0) ||
+      !!compound(x, nameC));
+  }
+
+  function prepare(query) {
+    const tk = tokens(query);
+    return { norm: norm(query), tokens: tk, content: content(tk) };
+  }
+
+  /**
+   * Lohnt ein weiterer Anlauf bei Open Food Facts?
+   *
+   * Nicht die Zahl der Treffer entscheidet das, sondern ihre Güte.
+   * Fünfzig Sorten Apfelkuchen sind keine Antwort auf "Apfel" — und
+   * solange nur sie im Korb liegen, hat die nächste Runde etwas zu
+   * holen. Umgekehrt reicht ein einziger genauer Treffer.
+   */
+  function needsMore(items, query, opts = {}) {
+    const min = opts.min === undefined ? 620 : opts.min;
+    const q = prepare(query);
+    if (!q.tokens.length) return false;
+    if (!items.length) return true;
+    let best = -Infinity;
+    for (const it of items) {
+      const s = score(it, q);
+      if (s > best) best = s;
+    }
+    return best < min;
   }
 
   /**
    * Sortiert absteigend. min = Punkteschwelle, darunter fliegt der Treffer raus.
    */
   function rank(items, query, opts = {}) {
-    const q = { norm: norm(query), tokens: tokens(query) };
+    const q = prepare(query);
     if (!q.tokens.length) return items.slice();
     const min = opts.min === undefined ? -Infinity : opts.min;
     return items
@@ -190,7 +278,7 @@ const Rank = (() => {
       .map(x => Object.assign({ _score: Math.round(x.s) }, x.it));
   }
 
-  return { rank, matches, norm, tokens, lev, score, coverage };
+  return { rank, matches, needsMore, norm, tokens, lev, score, coverage, stem, compound };
 })();
 
 if (typeof module !== 'undefined') module.exports = Rank;
