@@ -335,11 +335,24 @@ const I18n = (() => {
     return s;
   }
 
-  /* Statische Texte im Markup ersetzen */
+  /* Statische Texte im Markup ersetzen.
+
+     Fehlt ein Schlüssel in beiden Sprachen, gibt t() ihn selbst
+     zurück. Der gehört nicht auf einen Knopf: dann bleibt stehen,
+     was im HTML steht. Das ist im Zweifel das deutsche Wort aus der
+     Vorlage — allemal besser als "my.manage" als Aufschrift. */
+  function put(key, set) {
+    const s = t(key);
+    if (s !== key) set(s);
+  }
+
   function apply(root = document) {
-    root.querySelectorAll('[data-t]').forEach(el => { el.textContent = t(el.dataset.t); });
-    root.querySelectorAll('[data-t-ph]').forEach(el => { el.placeholder = t(el.dataset.tPh); });
-    root.querySelectorAll('[data-t-aria]').forEach(el => { el.setAttribute('aria-label', t(el.dataset.tAria)); });
+    root.querySelectorAll('[data-t]').forEach(el =>
+      put(el.dataset.t, s => { el.textContent = s; }));
+    root.querySelectorAll('[data-t-ph]').forEach(el =>
+      put(el.dataset.tPh, s => { el.placeholder = s; }));
+    root.querySelectorAll('[data-t-aria]').forEach(el =>
+      put(el.dataset.tAria, s => el.setAttribute('aria-label', s)));
     document.documentElement.lang = lang;
     document.title = t('app.name');
   }

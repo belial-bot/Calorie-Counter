@@ -62,6 +62,43 @@ const OFF = (() => {
     return typeof v === 'string' ? v.trim() : '';
   }
 
+  /* Mehrsprachige Felder kommen aus den beiden Diensten in zwei
+     Formen: die alte Suche schickt "Skyr", die neue ein Objekt
+     { main: "Skyr", de: "Skyr" }. Wer nur die Zeichenkette kennt,
+     wirft jeden Treffer der neuen Suche still weg — derselbe
+     Stolperstein wie früher bei den Marken als Liste. */
+  function localised(v, lang) {
+    if (typeof v === 'string') return v.trim();
+    if (!v || typeof v !== 'object') return '';
+    for (const k of [lang, 'main', 'de', 'en']) {
+      const s = text(v[k]);
+      if (s) return s;
+    }
+    // Irgendein Name ist besser als gar keiner: sonst fällt ein
+    // Produkt heraus, nur weil es auf Französisch beschriftet ist.
+    for (const k of Object.keys(v)) {
+      const s = text(v[k]);
+      if (s) return s;
+    }
+    return '';
+  }
+
+  /* "en:milsani" oder "milsani-aldi" -> "Milsani Aldi" */
+  function fromTag(tag) {
+    return String(tag || '')
+      .replace(/^[a-z]{2}:/, '')
+      .replace(/-/g, ' ')
+      .trim()
+      .replace(/\b[a-z]/g, c => c.toUpperCase());
+  }
+
+  function brandOf(p) {
+    const direct = firstOf(p.brands);
+    if (direct) return direct;
+    const tags = p.brands_tags;
+    return Array.isArray(tags) && tags.length ? fromTag(tags[0]) : '';
+  }
+
   function per100(n = {}) {
     let kcal = num(n['energy-kcal_100g']);
     if (kcal === null) {
@@ -78,8 +115,8 @@ const OFF = (() => {
 
   function pickName(p) {
     const l = I18n.lang === 'de' ? 'de' : 'en';
-    return text(p['product_name_' + l]) || text(p.product_name)
-        || text(p['generic_name_' + l]) || text(p.generic_name);
+    return text(p['product_name_' + l]) || localised(p.product_name, l)
+        || text(p['generic_name_' + l]) || localised(p.generic_name, l);
   }
 
   /* "500 g", "1,5 l", "6 x 33 cl" — die Suche liefert die Packungsgröße
@@ -118,7 +155,7 @@ const OFF = (() => {
     return {
       barcode: p.code || null,
       name,
-      brand: firstOf(p.brands),
+      brand: brandOf(p),
       unit,
       per100: nutr,
       portions: portions(p),
@@ -226,12 +263,29 @@ const OFF = (() => {
          + ` OR brands:(${pat}))`;
   }
 
+  /* Der Volltext geht so hinaus, wie er getippt wurde — nur ohne die
+     Zeichen, mit denen Lucene selbst spricht, sonst zerbricht die
+     Abfrage am ersten Doppelpunkt.
+
+     Wichtig ist der Umlaut: diesen Teil wertet der Suchdienst mit
+     demselben Analysator aus, der auch den Index gefüllt hat. Was dort
+     als "musli" liegt, findet "Müsli" also genauso — und was mit
+     Umlaut abgelegt ist, findet nur noch der Umlaut. Roh zu fragen
+     stimmt daher in beiden Fällen; die Platzhalter unten sind der
+     umgekehrte Fall und müssen geebnet bleiben. */
+  function freeText(q) {
+    return String(q)
+      .replace(/[+\-!(){}[\]^"~*?:\\/&|<>=]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   function buildQuery(q, opts) {
     const lang = I18n.lang === 'de' ? 'de' : 'en';
     const tk = terms(q);
     if (!tk.length) return null;
 
-    const parts = [tk.join(' ')];
+    const parts = [freeText(q) || tk.join(' ')];
     if (opts.strict) tk.forEach(t => parts.push(clause(t, lang)));
     const tag = opts.everywhere ? null : COUNTRIES[opts.region];
     if (tag) parts.push(`countries_tags:"${tag}"`);
@@ -340,18 +394,22 @@ const OFF = (() => {
       }
     }
 
-    // 2. Zu wenig? Dann derselbe genaue Griff, nur ohne Länderfilter.
-    //    Die Region bleibt in der Wertung als Bonus erhalten.
-    if (reached && list.length < 8 && region !== 'world') {
+    // 2. Nichts Passendes dabei? Dann derselbe genaue Griff, nur ohne
+    //    Länderfilter. Die Region bleibt in der Wertung als Bonus.
+    //
+    //    Gezählt wird dafür nicht, wie viel zurückkam, sondern ob etwas
+    //    Brauchbares dabei ist. Fünfzig Sorten Apfelkuchen haben die
+    //    nächste Runde früher verhindert — genau dann, wenn sie nötig war.
+    if (reached && (list.length < 8 || Rank.needsMore(list, q)) && region !== 'world') {
       try { list = merge(list, await searchFast(q, region, { strict: true, everywhere: true })); }
       catch (e) { /* nicht schlimm */ }
     }
 
-    // 3. Immer noch dünn? Jetzt die weite Suche: sie greift auch über
+    // 3. Immer noch nichts? Jetzt die weite Suche: sie greift auch über
     //    Kategorien und Gattungsnamen und findet damit, was anders heißt,
     //    als der Nutzer getippt hat. Sie holt viel Beifang mit — deshalb
     //    zuletzt, und die Wertung in search.js sortiert ihn nach hinten.
-    if (reached && list.length < 5) {
+    if (reached && (list.length < 5 || Rank.needsMore(list, q))) {
       try { list = merge(list, await searchFast(q, region, { everywhere: true })); }
       catch (e) { /* nicht schlimm */ }
     }
@@ -370,5 +428,7 @@ const OFF = (() => {
     return list;
   }
 
-  return { lookup, search, running, normalise, per100, buildQuery, COUNTRIES };
+  return { lookup, search, running, normalise, normaliseAll, per100, buildQuery, COUNTRIES };
 })();
+
+if (typeof module !== 'undefined') module.exports = OFF;
