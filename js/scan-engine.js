@@ -53,53 +53,82 @@ const ScanEngine = (() => {
      und fertig" und „draufhalten und warten". */
   const SURE_LINES = 24;
 
-  /* Die vier Arten, ein Bild anzusehen.
+  /* Die vier Arten, ein Bild anzusehen. Alle Maße beziehen sich auf
+     den sichtbaren Ausschnitt — auf das also, was im Sucher steht und
+     wonach jemand zielt, nicht auf das ganze Kamerabild.
 
-     w/h   Ausschnitt aus dem Kamerabild (Anteil)
-     cap   längste Kante danach — höher heißt mehr Bildpunkte je
-           Strich, aber auch mehr Rechenzeit
-     bin   örtliche Schwelle davorschalten (gegen Schatten und Glanz)
-     rot   das Abbild drehen, bevor gelesen wird
+     w       Breite, Anteil des Sichtbaren
+     aspect  Höhe, Anteil der eigenen Breite (fehlt: h vom Sichtbaren)
+     cy      Mitte des Streifens, Anteil der Höhe — 0.42 wie der Rahmen
+     cap     längste Kante danach. Mehr Bildpunkte je Strich heißt
+             sicherer lesen, aber auch mehr Rechenzeit und mehr
+             Speicher: jedes Bild wird einmal ausgelesen, und eine um
+             ein Viertel kürzere Kante heißt fast halb so viel davon.
+     bin     örtliche Schwelle davorschalten (gegen Schatten und Glanz)
+     rot     das Abbild drehen, bevor gelesen wird
      angles  nur für den eingebauten Ersatzleser, der schräg lesen kann */
   const PASSES = [
-    { id: 'band',    w: 0.92, h: 0.62, cap: 1440, bin: false, rot: 0,  angles: [0, 90] },
-    { id: 'bandBin', w: 0.92, h: 0.62, cap: 1024, bin: true,  rot: 0,  angles: [12, -12] },
-    { id: 'diag',    w: 0.92, h: 0.62, cap: 1024, bin: true,  rot: 45, angles: [45, -45] },
-    { id: 'full',    w: 1.00, h: 1.00, cap: 1280, bin: false, rot: 0,  angles: [0, 90] }
+    { id: 'band',    w: 1, aspect: 0.62, cy: 0.42, cap: 1152, bin: false, rot: 0,  angles: [0, 90] },
+    { id: 'bandBin', w: 1, aspect: 0.62, cy: 0.42, cap: 960,  bin: true,  rot: 0,  angles: [12, -12] },
+    { id: 'diag',    w: 1, aspect: 0.62, cy: 0.42, cap: 720,  bin: true,  rot: 45, angles: [45, -45] },
+    { id: 'full',    w: 1, h: 1,         cy: 0.50, cap: 1024, bin: false, rot: 0,  angles: [0, 90] }
   ];
 
   let engine = null;
-  let canvas = null;
+  const surfaces = new Map();
 
   /* ---------- Bild zurechtschneiden ---------- */
 
-  function surface(w, h) {
-    if (!canvas) {
-      canvas = typeof OffscreenCanvas !== 'undefined'
+  /* Je Durchgang eine eigene Zeichenfläche. Eine einzige müsste vier
+     Mal je Runde ihre Größe ändern, und jede Änderung wirft den
+     Speicher dahinter weg und legt ihn neu an. */
+  function surface(id, w, h) {
+    let c = surfaces.get(id);
+    if (!c) {
+      c = typeof OffscreenCanvas !== 'undefined'
         ? new OffscreenCanvas(w, h)
         : document.createElement('canvas');
+      surfaces.set(id, c);
     }
-    if (canvas.width !== w) canvas.width = w;
-    if (canvas.height !== h) canvas.height = h;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (c.width !== w) c.width = w;
+    if (c.height !== h) c.height = h;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
     ctx.setTransform(1, 0, 0, 1, 0, 0);     // ein Dreh von vorhin klebt sonst
     return ctx;
+  }
+
+  /* Der Ausschnitt dieses Durchgangs, in Bildpunkten der Quelle. */
+  function region(rect, pass) {
+    const w = Math.max(1, Math.round(rect.w * pass.w));
+    const h = Math.max(1, Math.round(pass.aspect
+      ? Math.min(rect.h, w * pass.aspect)
+      : rect.h * pass.h));
+    const top = rect.h * pass.cy - h / 2;
+    return {
+      x: rect.x + Math.round((rect.w - w) / 2),
+      y: rect.y + Math.round(Math.max(0, Math.min(rect.h - h, top))),
+      w, h
+    };
   }
 
   /* Schneidet den Ausschnitt heraus, rechnet ihn auf `cap` herunter und
      dreht ihn, wenn der Durchgang das verlangt. Das Zeichnen übernimmt
      die Grafikeinheit — in JavaScript nachgebaut wäre es ein Vielfaches
-     teurer. */
-  function shot(source, vw, vh, pass, rotate) {
-    const sw = Math.round(vw * pass.w), sh = Math.round(vh * pass.h);
-    const sx = (vw - sw) >> 1, sy = (vh - sh) >> 1;
-    const scale = Math.min(1, pass.cap / sw);
+     teurer.
+
+     Gekappt wird die längere Kante, nicht die Breite: hochkant gehalten
+     ist ein Handybild 1080 breit und 1920 hoch, und nach der Breite
+     gekappt bliebe es in voller Größe. */
+  function shot(source, rect, pass, rotate) {
+    const cut = region(rect, pass);
+    const sx = cut.x, sy = cut.y, sw = cut.w, sh = cut.h;
+    const scale = Math.min(1, pass.cap / Math.max(sw, sh));
     const dw = Math.max(1, Math.round(sw * scale));
     const dh = Math.max(1, Math.round(sh * scale));
     const deg = rotate ? pass.rot : 0;
 
     if (!deg) {
-      const ctx = surface(dw, dh);
+      const ctx = surface(pass.id, dw, dh);
       ctx.drawImage(source, sx, sy, sw, sh, 0, 0, dw, dh);
       return ctx.getImageData(0, 0, dw, dh);
     }
@@ -107,10 +136,9 @@ const ScanEngine = (() => {
     const rad = deg * Math.PI / 180;
     const c = Math.abs(Math.cos(rad)), s = Math.abs(Math.sin(rad));
     const ow = Math.ceil(dw * c + dh * s), oh = Math.ceil(dw * s + dh * c);
-    const ctx = surface(ow, oh);
+    const ctx = surface(pass.id, ow, oh);
     // Weiß in die Ecken: gedreht bleibt außen Platz, und ein Barcode
     // ohne helle Ruhezone am Rand wird von keinem Leser erkannt.
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, ow, oh);
     ctx.translate(ow / 2, oh / 2);
@@ -158,10 +186,15 @@ const ScanEngine = (() => {
     // seinem eigenen Mittelwert; viel breiter darf es sein, ohne dass
     // es schadet.
     const r = Math.max(4, (W / 30) | 0);
-    // Ein Hauch Vorspannung, damit gleichmäßig helle Flächen (die
-    // Ruhezone!) weiß bleiben und nicht in Rauschen zerfallen.
-    const bias = 4;
 
+    /* Schwarz wird, was merklich unter seiner Umgebung liegt — nicht,
+       was ein Fitzelchen darunter liegt. Ohne diesen Abstand zerfällt
+       jede gleichmäßige Fläche in Rauschen, allen voran die Ruhezone
+       neben dem Code, und ohne die liest kein Leser etwas.
+
+       Der Abstand ist anteilig (fünf Prozent), damit er im Hellen groß
+       genug ist, und hat im Dunkeln einen festen Boden, damit ein
+       flauer Code bei wenig Licht nicht ganz verschwindet. */
     for (let y = 0; y < H; y++) {
       const y0 = y - r < 0 ? 0 : y - r;
       const y1 = y + r + 1 > H ? H : y + r + 1;
@@ -170,8 +203,9 @@ const ScanEngine = (() => {
         const x0 = x - r < 0 ? 0 : x - r;
         const x1 = x + r + 1 > W ? W : x + r + 1;
         const area = (y1 - y0) * (x1 - x0);
-        const sum = sums[b + x1] - sums[a + x1] - sums[b + x0] + sums[a + x0];
-        const v = gray[y * W + x] * area < sum - bias * area ? 0 : 255;
+        const mean = (sums[b + x1] - sums[a + x1] - sums[b + x0] + sums[a + x0]) / area;
+        const gap = mean * 0.05 > 3 ? mean * 0.05 : 3;
+        const v = gray[y * W + x] < mean - gap ? 0 : 255;
         const i = (y * W + x) * 4;
         d[i] = d[i + 1] = d[i + 2] = v;
       }
@@ -296,18 +330,35 @@ const ScanEngine = (() => {
 
   /**
    * Liest ein Bild. `source` ist alles, was auf eine Zeichenfläche darf
-   * (ImageBitmap, <video>, <canvas>), `index` zählt die Bilder hoch und
-   * wählt damit den Durchgang.
+   * (ImageBitmap, <video>, <canvas>), `rect` der sichtbare Ausschnitt
+   * darin ({x, y, w, h} in Bildpunkten), `index` zählt die Bilder hoch
+   * und wählt damit den Durchgang.
    * Gibt { code, lines, pass, sure } zurück oder null.
    */
-  async function read(source, vw, vh, index) {
-    if (!engine || !vw || !vh) return null;
+  async function read(source, rect, index) {
+    if (!engine || !rect || rect.w < 2 || rect.h < 2) return null;
     const pass = PASSES[((index % PASSES.length) + PASSES.length) % PASSES.length];
-    const img = shot(source, vw, vh, pass, engine.rotate);
+    const img = shot(source, rect, pass, engine.rotate);
     if (pass.bin) binarize(img);
     const hit = await engine.decode(img, pass);
     if (!hit || !hit.code) return null;
     return { code: hit.code, lines: hit.lines || 0, pass: pass.id, sure: engine.sure };
+  }
+
+  /* Was von einem Kamerabild überhaupt zu sehen ist.
+
+     Das Sucherbild füllt den Bildschirm (object-fit: cover), und dabei
+     fällt links und rechts oder oben und unten etwas heraus. Gesucht
+     wird nur im sichtbaren Teil: im Rest kann niemand zielen, und ihn
+     mitzudurchsuchen kostet nur Zeit und Speicher. Hochkant am Handy
+     ist das die Hälfte des Bildes. */
+  function visible(vw, vh, cw, ch) {
+    if (!vw || !vh) return null;
+    if (!cw || !ch) return { x: 0, y: 0, w: vw, h: vh };
+    const scale = Math.max(cw / vw, ch / vh);
+    const w = Math.min(vw, Math.round(cw / scale));
+    const h = Math.min(vh, Math.round(ch / scale));
+    return { x: (vw - w) >> 1, y: (vh - h) >> 1, w, h };
   }
 
   /* ---------- Wann gilt ein Code? ----------
@@ -334,7 +385,7 @@ const ScanEngine = (() => {
   }
 
   return {
-    prepare, read, tally, binarize,
+    prepare, read, tally, binarize, visible,
     passes: PASSES,
     get engine() { return engine ? engine.name : null; },
     // für den Prüflauf

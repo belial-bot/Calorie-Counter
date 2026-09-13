@@ -46,7 +46,7 @@ self.onmessage = async ev => {
     const bitmap = msg.bitmap;
     if (!ready) { if (bitmap && bitmap.close) bitmap.close(); self.postMessage({ type: 'idle' }); return; }
     try {
-      const hit = await ScanEngine.read(bitmap, bitmap.width, bitmap.height, msg.index);
+      const hit = await ScanEngine.read(bitmap, msg.rect, msg.index);
       self.postMessage({ type: 'hit', hit: hit });
     } catch (e) {
       self.postMessage({ type: 'fail', reason: 'crash', detail: String(e && e.message || e) });

@@ -909,6 +909,10 @@
   renderRegion();
   renderToday();
 
+  // Lässt sich nichts mehr speichern, muss man das erfahren — sonst
+  // tippt jemand einen Tag lang Mahlzeiten ein, die niemand aufhebt.
+  Store.onSaveError(() => toast(t('toast.storageFull')));
+
   // Den Barcode-Leser laden, solange niemand darauf wartet. Beim
   // Antippen von „Scannen" ist dann nur noch die Kamera zu öffnen.
   Scanner.warmup();

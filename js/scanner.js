@@ -26,6 +26,7 @@ const Scanner = (() => {
 
   const ZXING_SRC = './vendor/zxing/zxing_reader.js';
   const WASM_SRC  = './vendor/zxing/zxing_reader.wasm';
+  const EAN_SRC   = './js/ean.js';
 
   let stream = null;
   let track = null;
@@ -40,6 +41,18 @@ const Scanner = (() => {
   let mainReady = false;
   let listening = null;          // der Zuhörer der laufenden Sitzung
   let epoch = 0;                 // zählt die Sitzungen, siehe start()
+  let screen = null;             // das <video> der laufenden Sitzung
+
+  /* Kommt die App aus dem Hintergrund zurück, steht das Sucherbild auf
+     dem iPhone manchmal still. Durchsucht würde dann immer weiter
+     dasselbe eingefrorene Bild — der Scanner sähe aus, als sei er
+     kaputt. Also anstoßen. */
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible' || !running || !screen) return;
+      if (screen.paused) screen.play().catch(() => {});
+    });
+  }
 
   function unlisten() {
     if (worker && listening) worker.removeEventListener('message', listening);
@@ -116,8 +129,14 @@ const Scanner = (() => {
   async function primeMain() {
     if (mainReady) return true;
     if (typeof ScanEngine === 'undefined') return false;
+    // Beides erst jetzt: der Arbeiter bringt seine eigenen Abschriften
+    // mit, und diesen Weg geht nur, wessen Browser keinen Arbeiter
+    // hergibt. Bis dahin muss niemand dafür bezahlen.
     if (!window.ZXingWASM) {
       try { await loadScript(ZXING_SRC); } catch (e) { /* dann ohne */ }
+    }
+    if (typeof EAN === 'undefined') {
+      try { await loadScript(EAN_SRC); } catch (e) { /* dann ohne */ }
     }
     const name = await ScanEngine.prepare({
       wasmUrl: new URL(WASM_SRC, document.baseURI).href,
@@ -261,6 +280,7 @@ const Scanner = (() => {
 
     running = true;
     torchOn = false;
+    screen = video;
 
     const votes = ScanEngine.tally();
     const began = Date.now();
@@ -329,13 +349,16 @@ const Scanner = (() => {
       sent = Date.now();
       const at = index++;
 
+      const rect = ScanEngine.visible(
+        video.videoWidth, video.videoHeight, video.clientWidth, video.clientHeight);
+
       try {
         if (worker && workerReady) {
           const bitmap = await createImageBitmap(video);
-          worker.postMessage({ type: 'frame', bitmap, index: at }, [bitmap]);
+          worker.postMessage({ type: 'frame', bitmap, rect, index: at }, [bitmap]);
           // busy wird in onMessage zurückgesetzt
         } else {
-          const hit = await ScanEngine.read(video, video.videoWidth, video.videoHeight, at);
+          const hit = await ScanEngine.read(video, rect, at);
           busy = false;
           consider(hit);
         }
@@ -361,13 +384,23 @@ const Scanner = (() => {
     };
 
     /* requestVideoFrameCallback gibt es genau dann ein Bild, wenn die
-       Kamera eines geliefert hat. Sonst tut es der Zeichentakt. */
+       Kamera eines geliefert hat. Sonst tut es der Zeichentakt.
+
+       Die ersten Sekunden wird jedes Bild durchsucht — dann entscheidet
+       sich, ob es „draufhalten und fertig" wird. Wer danach immer noch
+       sucht, scheitert nicht am Takt, sondern am Zielen: ab da genügt
+       jedes dritte Bild, und das Telefon bleibt kühl. */
+    const EAGER = 10000;
+    let skip = 0;
+    const beat = () => {
+      if (Date.now() - began > EAGER && skip++ % 3) { next(); return; }
+      pump().catch(e => {
+        busy = false;
+        console.error('Scan-Takt gestolpert:', e);
+        next();
+      });
+    };
     const rvfc = typeof video.requestVideoFrameCallback === 'function';
-    const beat = () => pump().catch(e => {
-      busy = false;
-      console.error('Scan-Takt gestolpert:', e);
-      next();
-    });
     const next = () => {
       if (!running || done) return;
       if (rvfc) video.requestVideoFrameCallback(beat);
@@ -379,6 +412,7 @@ const Scanner = (() => {
   function stop(video) {
     running = false;
     epoch++;
+    screen = null;
     unlisten();
     if (canTorch && torchOn) torch(false);
     if (stream) {

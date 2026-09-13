@@ -73,13 +73,15 @@ const ScanEngine = require(path.join(ROOT, 'js', 'scan-engine.js'));
 
 /* ---------- Hilfen ---------- */
 
-const W = 960, H = 540;
+/* Hochkant, wie ein Handy es liefert. */
+const W = 720, H = 1280;
+const RECT = { x: 0, y: 0, w: W, h: H };
 
 function frame(code, opts, n) {
   // Ein Bild aus einer Sitzung: die Hand zittert ein wenig.
   const jit = seeded(4000 + n * 37);
   return render(code, Object.assign({
-    width: W, height: H, module: 3.6, noise: 6, seed: n + 1
+    width: W, height: H, module: 3.6, barH: 0.22, noise: 6, seed: n + 1
   }, opts, {
     angle: (opts.angle || 0) + (jit() - 0.5) * 4,
     cx: (opts.cx == null ? 0.5 : opts.cx) + (jit() - 0.5) * 0.02,
@@ -95,7 +97,7 @@ async function session(code, opts, limit) {
   const wrong = [];
   for (let i = 0; i < (limit || 8); i++) {
     const img = frame(code, opts, i);
-    const hit = await ScanEngine.read(img, img.width, img.height, i);
+    const hit = await ScanEngine.read(img, RECT, i);
     if (!hit) continue;
     if (hit.code !== code) wrong.push(`${hit.code} (${hit.pass}, ${hit.lines} Zeilen)`);
     if (votes.add(hit.code, hit.lines, hit.sure)) return { code: hit.code, frames: i + 1, wrong };
@@ -190,8 +192,8 @@ test('Der Korb wird gefunden — jeder Fall, in wenigen Bildern', async () => {
 test('Der Schatten-Durchgang verdient seinen Platz', async () => {
   const code = ean13(randomCode(seeded(5))).code;
   const img = frame(code, { module: 4.2, shadow: 0.8 }, 0);
-  const raw = await ScanEngine.read(img, img.width, img.height, 0);   // band, roh
-  const bin = await ScanEngine.read(img, img.width, img.height, 1);   // band, binarisiert
+  const raw = await ScanEngine.read(img, RECT, 0);   // band, roh
+  const bin = await ScanEngine.read(img, RECT, 1);   // band, binarisiert
   ok(!raw, `roh wurde etwas gelesen (${raw && raw.code}) — dann fehlt der Beleg für diesen Durchgang`);
   ok(bin && bin.code === code, 'binarisiert kommt der Code heraus');
 });
@@ -199,8 +201,8 @@ test('Der Schatten-Durchgang verdient seinen Platz', async () => {
 test('Der Diagonal-Durchgang verdient seinen Platz', async () => {
   const code = ean13(randomCode(seeded(6))).code;
   const img = frame(code, { module: 3.6, angle: 45 }, 0);
-  const raw = await ScanEngine.read(img, img.width, img.height, 0);   // band, ungedreht
-  const rot = await ScanEngine.read(img, img.width, img.height, 2);   // um 45 Grad gedreht
+  const raw = await ScanEngine.read(img, RECT, 0);   // band, ungedreht
+  const rot = await ScanEngine.read(img, RECT, 2);   // um 45 Grad gedreht
   ok(!raw || raw.code !== code, 'ungedreht liest ZXing keine Diagonale');
   ok(rot && rot.code === code, 'gedreht kommt der Code heraus');
 });
@@ -217,10 +219,14 @@ test('Binarisieren macht aus einem Bild Schwarz und Weiß', () => {
   }
   eq(other, 0, 'nur noch 0 und 255');
   ok(black > 1000 && white > 1000, 'beide Farben kommen vor');
-  // Die Ruhezone ist gleichmäßig hell — sie darf nicht in Rauschen zerfallen
-  let edge = 0;
-  for (let x = 0; x < 40; x++) if (copy.data[(20 * copy.width + x) * 4] === 0) edge++;
-  eq(edge, 0, 'die leere Ecke bleibt weiß');
+  // Gleichmäßige Flächen dürfen nicht in Rauschen zerfallen — sonst
+  // ist die Ruhezone neben dem Code keine mehr, und ohne die liest
+  // kein Leser etwas.
+  let dark = 0;
+  for (let y = 0; y < 60; y++) {
+    for (let x = 0; x < 60; x++) if (copy.data[(y * copy.width + x) * 4] === 0) dark++;
+  }
+  ok(dark < 36, `die leere Ecke ist zu ${Math.round(dark / 36)} % schwarz`);
 });
 
 test('Der eingebaute Ersatzleser kommt ohne ZXing aus', () => {

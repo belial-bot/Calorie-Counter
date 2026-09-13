@@ -1,34 +1,48 @@
 /* =========================================================
    store.js — alles, was gespeichert wird
    Liegt ausschließlich im localStorage dieses Geräts.
+
+   Zwei Schubladen, und das mit Absicht:
+
+   zettel.v1        das Tagebuch, die Ziele, die eigenen Lebensmittel.
+                    Ein paar Kilobyte, unersetzlich.
+   zettel.cache.v1  was von Open Food Facts nachgeschlagen wurde.
+                    Schnell ein Megabyte, und jederzeit entbehrlich.
+
+   Zusammen in einer Schublade hieße: jeder eingetragene Apfel
+   schreibt ein Megabyte neu — und wenn der Speicher voll ist,
+   lässt sich der Apfel nicht mehr eintragen, weil tausend
+   Suchtreffer den Platz belegen. Getrennt kostet ein Eintrag ein
+   paar Kilobyte, und im Zweifel fliegt der Zwischenspeicher.
    ========================================================= */
 
 const Store = (() => {
   const KEY = 'zettel.v1';
+  const CACHE_KEY = 'zettel.cache.v1';
 
   const DEFAULTS = {
     goals: { kcal: 2100, protein: 150, carbs: 210, fat: 70 },
     days: {},   // 'JJJJ-MM-TT' -> [eintrag]
     foods: [],  // eigene Lebensmittel
-    cache: {},  // Barcode -> Produkt (damit ein zweiter Scan offline klappt)
-    scache: {}, // Suchbegriff -> Treffer, damit dieselbe Suche nicht zweimal ins Netz geht
     lang: null, // null = Sprache des Geräts übernehmen
     region: null // null = Region aus den Geräteeinstellungen ableiten
   };
 
   let data = load();
+  let onError = null;
 
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
       if (!raw) return structuredClone(DEFAULTS);
       const parsed = JSON.parse(raw);
+      // Ältere Fassungen hatten cache und scache hier mit drin. Sie
+      // werden hier nicht übernommen und beim ersten Speichern still
+      // ausgebucht — nachschlagen lässt sich alles davon wieder.
       return {
         goals: Object.assign({}, DEFAULTS.goals, parsed.goals),
         days:  parsed.days  || {},
         foods: parsed.foods || [],
-        cache:  parsed.cache  || {},
-        scache: parsed.scache || {},
         lang:   parsed.lang   || null,
         region: parsed.region || null
       };
@@ -43,8 +57,17 @@ const Store = (() => {
       localStorage.setItem(KEY, JSON.stringify(data));
       return true;
     } catch (e) {
-      console.error('Speichern fehlgeschlagen', e);
-      return false;
+      // Speicher voll. Der Zwischenspeicher ist ersetzbar, das
+      // Tagebuch nicht: ausräumen und noch einmal versuchen.
+      dropCache();
+      try {
+        localStorage.setItem(KEY, JSON.stringify(data));
+        return true;
+      } catch (e2) {
+        console.error('Speichern fehlgeschlagen', e2);
+        if (onError) onError(e2);
+        return false;
+      }
     }
   }
 
@@ -150,7 +173,9 @@ const Store = (() => {
 
   function setRegion(r) {
     data.region = REGIONS.includes(r) ? r : 'world';
-    data.scache = {};      // gespeicherte Treffer gelten nur für die alte Region
+    // Nachgeschlagenes trägt die alte Region in sich — die Trefferliste
+    // sowieso, und bei den Produkten das „gibt es hier zu kaufen".
+    dropCache();
     save();
   }
 
@@ -201,31 +226,105 @@ const Store = (() => {
     ).slice(0, 12);
   }
 
-  /* ---------- Produkt-Cache ---------- */
+  /* ---------- Nachgeschlagenes ----------
+
+     Wird erst gelesen, wenn zum ersten Mal gesucht oder gescannt wird:
+     beim Start der App wäre es nur Wartezeit für etwas, das vielleicht
+     gar nicht gebraucht wird.
+
+     Geschrieben wird gesammelt. Ein Suchlauf bringt bis zu fünfzig
+     Produkte mit; sie bei jedem Tastendruck neu zu verschriftlichen
+     wäre die teuerste Stelle der ganzen App. Geht dabei einmal etwas
+     verloren, ist es ein Zwischenspeicher — es lässt sich nachladen. */
+
+  const MAX_PRODUCTS = 250;
+  const MAX_SEARCHES = 24;
+  const MAX_HITS = 40;                          // je Suche aufgehoben
+  const SEARCH_TTL = 24 * 60 * 60 * 1000;       // einen Tag lang gültig
+  const WRITE_DELAY = 1500;
+
+  let cache = null;
+  let cacheDirty = false;
+  let cacheTimer = null;
+
+  function shelf() {
+    if (cache) return cache;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+      cache = { p: (parsed && parsed.p) || {}, s: (parsed && parsed.s) || {} };
+    } catch (e) {
+      cache = { p: {}, s: {} };
+    }
+    return cache;
+  }
+
+  function saveCacheSoon() {
+    cacheDirty = true;
+    if (!cacheTimer) cacheTimer = setTimeout(flushCache, WRITE_DELAY);
+  }
+
+  function flushCache() {
+    clearTimeout(cacheTimer);
+    cacheTimer = null;
+    if (!cacheDirty || !cache) return;
+    cacheDirty = false;
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); }
+    catch (e) { dropCache(); }      // voll: lieber leer als im Weg
+  }
+
+  function dropCache() {
+    cache = { p: {}, s: {} };
+    cacheDirty = false;
+    clearTimeout(cacheTimer);
+    cacheTimer = null;
+    try { localStorage.removeItem(CACHE_KEY); } catch (e) { /* dann eben nicht */ }
+  }
+
+  /* Das Älteste zuerst — nicht das Erstbeste. Reihenfolge nach
+     Einfügen gibt es bei Zahlen-Schlüsseln (ein EAN-8 ist einer)
+     nämlich nicht: die sortiert JavaScript von sich aus nach Größe. */
+  function evict(map, max) {
+    const keys = Object.keys(map);
+    if (keys.length <= max) return;
+    keys.sort((a, b) => (map[a].at || 0) - (map[b].at || 0));
+    for (let i = 0; i < keys.length - max; i++) delete map[keys[i]];
+  }
 
   function cacheProduct(code, product) {
-    data.cache[code] = product;
-    const codes = Object.keys(data.cache);
-    if (codes.length > 300) delete data.cache[codes[0]];
-    save();
+    const c = shelf();
+    c.p[code] = { at: Date.now(), v: product };
+    evict(c.p, MAX_PRODUCTS);
+    saveCacheSoon();
   }
-  function cachedProduct(code) { return data.cache[code] || null; }
 
-  /* Suchtreffer einen Tag lang aufheben */
-  const SEARCH_TTL = 24 * 60 * 60 * 1000;
+  function cachedProduct(code) {
+    const hit = shelf().p[code];
+    return hit ? hit.v : null;
+  }
 
   function cacheSearch(key, list) {
-    data.scache[key] = { at: Date.now(), list };
-    const keys = Object.keys(data.scache);
-    if (keys.length > 60) delete data.scache[keys[0]];
-    save();
+    const c = shelf();
+    c.s[key] = { at: Date.now(), list: list.slice(0, MAX_HITS) };
+    evict(c.s, MAX_SEARCHES);
+    saveCacheSoon();
   }
 
   function cachedSearch(key) {
-    const hit = data.scache[key];
+    const c = shelf();
+    const hit = c.s[key];
     if (!hit) return null;
-    if (Date.now() - hit.at > SEARCH_TTL) { delete data.scache[key]; return null; }
+    if (Date.now() - hit.at > SEARCH_TTL) { delete c.s[key]; saveCacheSoon(); return null; }
     return hit.list;
+  }
+
+  /* Wer die App weglegt, soll den Zwischenspeicher nicht verlieren.
+     pagehide ist auf dem iPhone das einzige Ereignis, auf das dabei
+     Verlass ist — unload kommt dort nie. */
+  if (typeof addEventListener === 'function') {
+    addEventListener('pagehide', flushCache);
+    addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushCache();
+    });
   }
 
   /* ---------- Kopie sichern / laden ---------- */
@@ -242,8 +341,6 @@ const Store = (() => {
       goals: Object.assign({}, DEFAULTS.goals, d.goals),
       days:  d.days  || {},
       foods: d.foods || [],
-      cache:  d.cache  || {},
-      scache: d.scache || {},
       lang:   d.lang   || null,
       region: d.region || null
     };
@@ -277,6 +374,7 @@ const Store = (() => {
     goals, setGoals, lang, setLang, region, setRegion, REGIONS,
     foods, saveFood, updateFood, removeFood, searchFoods,
     cacheProduct, cachedProduct, cacheSearch, cachedSearch,
-    exportAll, importAll, recentDays, isFresh, uid
+    exportAll, importAll, recentDays, isFresh, uid,
+    onSaveError(fn) { onError = fn; }
   };
 })();

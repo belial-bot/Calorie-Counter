@@ -49,6 +49,21 @@ Zeichenfläche ist nachgebaut (`test/canvas2d.js`), weil node keine hat.
 Jeder Fall muss gefunden werden, im Mittel in höchstens 2,5 Bildern,
 und kein einziger falsch gelesen.
 
+## Was wo gespeichert wird
+
+Alles bleibt auf dem Gerät, in zwei getrennten Schubladen:
+
+* `zettel.v1` — Tagebuch, Ziele, eigene Lebensmittel. Ein paar
+  Kilobyte, unersetzlich, wird bei jeder Änderung sofort geschrieben.
+* `zettel.cache.v1` — was bei Open Food Facts nachgeschlagen wurde.
+  Schnell ein Megabyte, jederzeit entbehrlich; wird erst beim ersten
+  Suchen gelesen und gesammelt geschrieben.
+
+Getrennt, weil sonst jeder eingetragene Apfel ein Megabyte neu
+verschriftlicht — und weil ein voller Speicher sonst das Eintragen
+verhindert. Ist er voll, fliegt der Zwischenspeicher und der Eintrag
+wird trotzdem gespeichert.
+
 ## Veröffentlichen
 
 Wird an `js/`, `css/`, `vendor/` oder `index.html` etwas geändert,
