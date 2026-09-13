@@ -27,7 +27,10 @@ const FILES = [
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(SHELL)
-      .then(c => Promise.all(FILES.map(f => c.add(f).catch(() => {}))))
+      // Am Browser-Cache vorbei holen, sonst legt sich beim Einrichten
+      // gleich wieder die alte Fassung in den neuen Cache.
+      .then(c => Promise.all(FILES.map(f =>
+        c.add(new Request(f, { cache: 'reload' })).catch(() => {}))))
       .then(() => self.skipWaiting())
   );
 });
@@ -80,19 +83,24 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Eigene Dateien: Cache zuerst, im Hintergrund auffrischen
+  // Eigene Dateien: erst das Netz, dann der Cache.
+  //
+  // Andersherum ging es schief. Die Seite selbst kommt frisch aus dem
+  // Netz (siehe oben), die Skripte kamen aus dem Cache: neue Seite,
+  // alter Code. Dann trug ein Knopf seinen eigenen Schlüssel als
+  // Aufschrift und tat beim Antippen nichts, weil die Stelle, die
+  // zuhört, erst in der neuen Fassung steht.
+  //
+  // Ohne Netz ändert sich nichts — dann antwortet weiterhin der Cache.
   if (url.origin === self.location.origin) {
     event.respondWith(
-      caches.match(req, { ignoreSearch: true }).then(hit => {
-        const net = fetch(req).then(res => {
-          if (res && res.ok) {
-            const copy = res.clone();
-            caches.open(SHELL).then(c => c.put(req, copy));
-          }
-          return res;
-        }).catch(() => hit);
-        return hit || net;
-      })
+      fetch(req).then(res => {
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(SHELL).then(c => c.put(req, copy));
+        }
+        return res;
+      }).catch(() => caches.match(req, { ignoreSearch: true }))
     );
   }
 });
