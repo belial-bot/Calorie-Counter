@@ -179,6 +179,14 @@ const Store = (() => {
     return rec;
   }
 
+  function updateFood(id, patch) {
+    const i = data.foods.findIndex(f => f.id === id);
+    if (i < 0) return null;
+    data.foods[i] = Object.assign({}, data.foods[i], patch, { id });
+    save();
+    return data.foods[i];
+  }
+
   function removeFood(id) {
     data.foods = data.foods.filter(f => f.id !== id);
     save();
@@ -267,7 +275,7 @@ const Store = (() => {
     entries, addEntry, updateEntry, removeEntry,
     entryTotals, dayTotals,
     goals, setGoals, lang, setLang, region, setRegion, REGIONS,
-    foods, saveFood, removeFood, searchFoods,
+    foods, saveFood, updateFood, removeFood, searchFoods,
     cacheProduct, cachedProduct, cacheSearch, cachedSearch,
     exportAll, importAll, recentDays, isFresh, uid
   };
