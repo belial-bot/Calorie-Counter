@@ -3,7 +3,7 @@
    Version hochzählen, wenn du Dateien änderst.
    ========================================================= */
 
-const VERSION = 'zettel-v9';
+const VERSION = 'zettel-v10';
 const SHELL = `${VERSION}-shell`;
 const RUNTIME = `${VERSION}-runtime`;
 
@@ -16,7 +16,11 @@ const FILES = [
   './js/search.js',
   './js/off.js',
   './js/ean.js',
+  './js/scan-engine.js',
+  './js/scan-worker.js',
   './js/scanner.js',
+  './vendor/zxing/zxing_reader.js',
+  './vendor/zxing/zxing_reader.wasm',
   './js/app.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
@@ -66,8 +70,9 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Schriften und die Barcode-Bibliothek: einmal holen, dann behalten
-  if (isFont(url) || url.hostname === 'unpkg.com' || url.hostname === 'cdn.jsdelivr.net') {
+  // Schriften: einmal holen, dann behalten. (Der Barcode-Leser liegt
+  // seit v10 im Projekt und geht oben mit in den Schrank.)
+  if (isFont(url)) {
     event.respondWith(
       caches.match(req).then(hit => {
         if (hit) return hit;
@@ -79,6 +84,22 @@ self.addEventListener('fetch', event => {
           return res;
         }).catch(() => new Response('', { status: 504, statusText: 'offline' }));
       })
+    );
+    return;
+  }
+
+  // Der Barcode-Leser: erst der Cache. Er ist fast ein Megabyte groß
+  // und ändert sich nie — nur mit der Fassung oben, und die holt ihn
+  // beim Einrichten ohnehin neu.
+  if (url.origin === self.location.origin && url.pathname.includes('/vendor/')) {
+    event.respondWith(
+      caches.match(req, { ignoreSearch: true }).then(hit => hit || fetch(req).then(res => {
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(SHELL).then(c => c.put(req, copy));
+        }
+        return res;
+      }))
     );
     return;
   }
