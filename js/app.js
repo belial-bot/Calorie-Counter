@@ -23,6 +23,10 @@
   let searchSeq = 0;
   let lastQuery = '';
   let followToday = true;      // springt um Mitternacht mit, bis der Nutzer blättert
+  let pickingForCombo = false; // die Suche liefert gerade eine Zutat für eine Kombination
+  let newFoodMode = 'search';  // wohin "Selbst anlegen" führt: search | catalogNew | catalogEdit | comboIngredient
+  let newFoodEditId = null;
+  let combo = null;             // { editingId, ingredients: [...] }
 
   /* ================= Hilfsmittel ================= */
 
@@ -223,7 +227,15 @@
     const btn = ev.target.closest('.res');
     if (!btn) return;
     const f = $('#results')._items[Number(btn.dataset.i)];
-    if (f) { sheetAdd.hidden = true; openQty(f, false); }
+    if (!f) return;
+    sheetAdd.hidden = true;
+    if (pickingForCombo) {
+      pickingForCombo = false;
+      addComboIngredient(f);
+      sheetCombo.hidden = false;
+    } else {
+      openQty(f, false);
+    }
   });
 
   let searchTimer;
@@ -399,12 +411,34 @@
 
   const sheetNew = $('#sheet-new');
 
-  $('#act-manual').addEventListener('click', () => {
-    sheetAdd.hidden = true;
-    ['#n-name', '#n-kcal', '#n-protein', '#n-carbs', '#n-fat', '#n-portion'].forEach(s => { $(s).value = ''; });
-    $('#n-name').value = qInput.value.trim();
+  // Vier Wege führen hierher: aus der Suche (dann geht es weiter zur Menge),
+  // direkt aus "Meine Lebensmittel" (neu oder bearbeiten, dann wird sofort
+  // gespeichert), oder als Zutat für eine Kombination.
+  function openNewFood(mode, food) {
+    newFoodMode = mode;
+    newFoodEditId = food ? food.id : null;
+    $('#new-heading').textContent = mode === 'catalogEdit' ? t('new.editTitle') : t('new.title');
+    $('#n-name').value = food ? food.name : (mode === 'search' ? qInput.value.trim() : '');
+    $('#n-kcal').value = food ? (food.per100.kcal || '') : '';
+    $('#n-protein').value = food ? (food.per100.protein || '') : '';
+    $('#n-carbs').value = food ? (food.per100.carbs || '') : '';
+    $('#n-fat').value = food ? (food.per100.fat || '') : '';
+    const portion = food && food.portions && food.portions[0] ? food.portions[0].grams : '';
+    $('#n-portion').value = portion || '';
+    $('#n-delete').hidden = mode !== 'catalogEdit';
+    $('#n-save').textContent = mode === 'search' ? t('new.save') : t('new.saveDirect');
     sheetNew.hidden = false;
     setTimeout(() => $('#n-name').focus(), 120);
+  }
+
+  $('#act-manual').addEventListener('click', () => {
+    sheetAdd.hidden = true;
+    if (pickingForCombo) {
+      pickingForCombo = false;
+      openNewFood('comboIngredient');
+    } else {
+      openNewFood('search');
+    }
   });
 
   $('#n-save').addEventListener('click', () => {
@@ -412,19 +446,170 @@
     const name = $('#n-name').value.trim();
     if (!name) { toast(t('new.noName')); return; }
     const portion = numOf('#n-portion');
-    const food = {
+    const foodData = {
       name,
       brand: '',
       barcode: null,
       unit: 'g',
       per100: { kcal: numOf('#n-kcal'), protein: numOf('#n-protein'), carbs: numOf('#n-carbs'), fat: numOf('#n-fat') },
-      portions: portion > 0 ? [{ label: t('food.piece', { g: nf0(portion) }), grams: portion }] : [],
-      source: 'new'
+      portions: portion > 0 ? [{ label: t('food.piece', { g: nf0(portion) }), grams: portion }] : []
     };
+
+    if (newFoodMode === 'catalogEdit') {
+      Store.updateFood(newFoodEditId, foodData);
+      sheetNew.hidden = true;
+      toast(t('toast.updated'));
+      openMyFoods();
+    } else if (newFoodMode === 'catalogNew') {
+      Store.saveFood(Object.assign({ source: 'mine' }, foodData));
+      sheetNew.hidden = true;
+      toast(t('toast.foodSaved', { name }));
+      openMyFoods();
+    } else if (newFoodMode === 'comboIngredient') {
+      sheetNew.hidden = true;
+      addComboIngredient(Object.assign({ grams: portion > 0 ? portion : 100 }, foodData));
+      sheetCombo.hidden = false;
+    } else {
+      sheetNew.hidden = true;
+      openQty(Object.assign({ source: 'new' }, foodData), false);
+      $('#qty-savewrap').hidden = false;
+      $('#qty-save').checked = true;
+    }
+  });
+
+  $('#n-delete').addEventListener('click', () => {
+    if (!newFoodEditId) return;
+    Store.removeFood(newFoodEditId);
     sheetNew.hidden = true;
-    openQty(food, false);
-    $('#qty-savewrap').hidden = false;
-    $('#qty-save').checked = true;
+    toast(t('toast.deleted'));
+    openMyFoods();
+  });
+
+  /* ================= Kombination ================= */
+
+  const sheetCombo = $('#sheet-combo');
+
+  function openCombo(mode, food) {
+    combo = {
+      editingId: mode === 'edit' ? food.id : null,
+      ingredients: mode === 'edit' && food.recipe
+        ? food.recipe.map(ing => Object.assign({}, ing))
+        : []
+    };
+    $('#combo-heading').textContent = mode === 'edit' ? t('combo.titleEdit') : t('combo.title');
+    $('#c-name').value = mode === 'edit' ? food.name : '';
+    $('#c-delete').hidden = mode !== 'edit';
+    renderComboList();
+    sheetCombo.hidden = false;
+    setTimeout(() => $('#c-name').focus(), 120);
+  }
+
+  function comboTotals() {
+    return combo.ingredients.reduce((sum, ing) => {
+      const f = (ing.grams || 0) / 100;
+      sum.grams += ing.grams || 0;
+      sum.kcal += (ing.per100.kcal || 0) * f;
+      sum.protein += (ing.per100.protein || 0) * f;
+      sum.carbs += (ing.per100.carbs || 0) * f;
+      sum.fat += (ing.per100.fat || 0) * f;
+      return sum;
+    }, { grams: 0, kcal: 0, protein: 0, carbs: 0, fat: 0 });
+  }
+
+  function renderComboList() {
+    const box = $('#combo-list');
+    if (!combo.ingredients.length) {
+      box.innerHTML = `<p class="note">${esc(t('combo.empty'))}</p>`;
+    } else {
+      box.innerHTML = combo.ingredients.map((ing, i) => `<div class="combo-row" data-i="${i}">
+        <span class="combo-name">${esc(ing.name)}</span>
+        <span class="combo-amt-wrap"><input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" class="combo-amount" data-i="${i}" value="${ing.grams}"><em>${esc(ing.unit || 'g')}</em></span>
+        <span class="combo-kcal" data-i="${i}">${nf0(Math.round((ing.per100.kcal || 0) * ing.grams / 100))} kcal</span>
+        <button class="combo-del" data-i="${i}" aria-label="${esc(t('combo.remove'))}">×</button>
+      </div>`).join('');
+    }
+    renderComboPreview();
+  }
+
+  function renderComboPreview() {
+    const tot = comboTotals();
+    $('#combo-preview').innerHTML = `
+      <div class="pv"><b>${nf0(Math.round(tot.kcal))}</b><span>kcal</span></div>` +
+      MACROS.map(m => `<div class="pv" data-k="${m.k}"><b>${g(tot[m.k])}</b><span>${esc(t('macro.' + m.k + '.abbr'))}</span></div>`).join('');
+  }
+
+  function addComboIngredient(food) {
+    const sane = (food.portions || []).find(p => p.grams >= 5 && p.grams <= 400);
+    const grams = food.grams || food.lastGrams || (sane ? sane.grams : 100);
+    combo.ingredients.push({
+      name: food.name,
+      unit: food.unit || 'g',
+      per100: food.per100,
+      grams
+    });
+    renderComboList();
+  }
+
+  $('#c-add-ingredient').addEventListener('click', () => {
+    pickingForCombo = true;
+    sheetCombo.hidden = true;
+    openAdd();
+  });
+
+  $('#combo-list').addEventListener('input', ev => {
+    const inp = ev.target.closest('.combo-amount');
+    if (!inp) return;
+    const i = Number(inp.dataset.i);
+    const grams = parseFloat(String(inp.value).replace(',', '.')) || 0;
+    combo.ingredients[i].grams = grams;
+    const kcalEl = $(`.combo-kcal[data-i="${i}"]`);
+    if (kcalEl) kcalEl.textContent = nf0(Math.round((combo.ingredients[i].per100.kcal || 0) * grams / 100)) + ' kcal';
+    renderComboPreview();
+  });
+
+  $('#combo-list').addEventListener('click', ev => {
+    const btn = ev.target.closest('.combo-del');
+    if (!btn) return;
+    combo.ingredients.splice(Number(btn.dataset.i), 1);
+    renderComboList();
+  });
+
+  $('#c-save').addEventListener('click', () => {
+    const name = $('#c-name').value.trim();
+    if (!name) { toast(t('combo.needName')); return; }
+    const tot = comboTotals();
+    if (!combo.ingredients.length || tot.grams <= 0) { toast(t('combo.needIngredient')); return; }
+    const f = 100 / tot.grams;
+    const per100 = {
+      kcal: tot.kcal * f, protein: tot.protein * f,
+      carbs: tot.carbs * f, fat: tot.fat * f
+    };
+    const grams = Math.round(tot.grams);
+    const foodData = {
+      name, brand: '', barcode: null, unit: 'g', per100,
+      portions: [{ label: t('combo.wholePortion', { g: nf0(grams) }), grams }],
+      recipe: combo.ingredients.map(ing => ({ name: ing.name, unit: ing.unit, per100: ing.per100, grams: ing.grams })),
+      source: 'mine'
+    };
+    if (combo.editingId) {
+      Store.updateFood(combo.editingId, foodData);
+      toast(t('toast.updated'));
+    } else {
+      Store.saveFood(foodData);
+      toast(t('toast.foodSaved', { name }));
+    }
+    sheetCombo.hidden = true;
+    combo = null;
+    openMyFoods();
+  });
+
+  $('#c-delete').addEventListener('click', () => {
+    if (!combo || !combo.editingId) return;
+    Store.removeFood(combo.editingId);
+    sheetCombo.hidden = true;
+    combo = null;
+    toast(t('toast.deleted'));
+    openMyFoods();
   });
 
   /* ================= Scannen ================= */
@@ -490,7 +675,6 @@
     const goals = Store.goals();
     GOAL_FIELDS.forEach(k => { $('#g-' + k).value = goals[k]; });
     goalCheck();
-    renderMyFoods();
   }
 
   function goalCheck() {
@@ -513,6 +697,17 @@
     });
   });
 
+  const sheetMyFoods = $('#sheet-myfoods');
+
+  function openMyFoods() {
+    renderMyFoods();
+    sheetMyFoods.hidden = false;
+  }
+
+  $('#act-myfoods').addEventListener('click', openMyFoods);
+  $('#act-new-food').addEventListener('click', () => { sheetMyFoods.hidden = true; openNewFood('catalogNew'); });
+  $('#act-new-combo').addEventListener('click', () => { sheetMyFoods.hidden = true; openCombo('new'); });
+
   function renderMyFoods() {
     const list = Store.foods();
     const box = $('#mylist');
@@ -520,18 +715,23 @@
       box.innerHTML = `<p class="note">${esc(t('my.empty'))}</p>`;
       return;
     }
-    box.innerHTML = list.map(f => `<div class="my-row">
-      <span class="my-name">${esc(f.name)}</span>
-      <span class="my-kcal">${nf0(Math.round(f.per100.kcal))} kcal/100 ${f.unit || 'g'}</span>
+    box.innerHTML = list.map(f => `<div class="my-row" data-id="${f.id}">
+      <span class="my-name">${esc(f.name)}${f.recipe ? `<span class="res-tag">${esc(t('tag.combo'))}</span>` : ''}</span>
+      <span class="my-kcal">${nf0(Math.round(f.per100.kcal))} kcal/100 ${esc(f.unit || 'g')}</span>
       <button class="my-del" data-id="${f.id}" aria-label="${esc(t('my.delete'))}">×</button>
     </div>`).join('');
   }
 
   $('#mylist').addEventListener('click', ev => {
-    const btn = ev.target.closest('.my-del');
-    if (!btn) return;
-    Store.removeFood(btn.dataset.id);
-    renderMyFoods();
+    const del = ev.target.closest('.my-del');
+    if (del) { Store.removeFood(del.dataset.id); renderMyFoods(); return; }
+    const row = ev.target.closest('.my-row');
+    if (!row) return;
+    const food = Store.foods().find(f => f.id === row.dataset.id);
+    if (!food) return;
+    sheetMyFoods.hidden = true;
+    if (food.recipe) openCombo('edit', food);
+    else openNewFood('catalogEdit', food);
   });
 
   /* ================= Verlauf ================= */
@@ -608,20 +808,41 @@
 
   /* ================= Sheets schließen ================= */
 
+  function closeSheet(sheet) {
+    if (sheet.id === 'sheet-scan') { stopScan(); return; }
+    sheet.hidden = true;
+
+    // Wurde die Suche für eine Kombinations-Zutat abgebrochen, geht es
+    // zurück zur Kombination statt alles zu schließen.
+    if (sheet.id === 'sheet-add' && pickingForCombo) {
+      pickingForCombo = false;
+      sheetCombo.hidden = false;
+      return;
+    }
+    // Abbruch beim Anlegen/Bearbeiten geht zurück zu "Meine Lebensmittel",
+    // von wo aus dieser Weg immer gestartet ist — außer bei der Zutat
+    // einer Kombination, die zurück zur Kombination führt.
+    if (sheet.id === 'sheet-new') {
+      if (newFoodMode === 'comboIngredient') sheetCombo.hidden = false;
+      else if (newFoodMode !== 'search') openMyFoods();
+      return;
+    }
+    if (sheet.id === 'sheet-combo') { openMyFoods(); return; }
+  }
+
   document.addEventListener('click', ev => {
     const closer = ev.target.closest('[data-close]');
     if (!closer) return;
     const sheet = closer.closest('.sheet');
     if (!sheet) return;
-    if (sheet.id === 'sheet-scan') stopScan();
-    else sheet.hidden = true;
+    closeSheet(sheet);
   });
 
   document.addEventListener('keydown', ev => {
     if (ev.key !== 'Escape') return;
     const open = $$('.sheet').filter(s => !s.hidden).pop();
     if (!open) return;
-    if (open.id === 'sheet-scan') stopScan(); else open.hidden = true;
+    closeSheet(open);
   });
 
   $('#act-add').addEventListener('click', openAdd);

@@ -128,8 +128,8 @@
     <div class="rule rule--wide"></div>
 
     <h2 class="sub-title" data-t="my.title">Meine Lebensmittel</h2>
-    <p class="note" data-t="my.note">Alles, was du von Hand angelegt oder gespeichert hast.</p>
-    <div class="mylist" id="mylist"></div>
+    <p class="note" data-t="my.note">Alles, was du von Hand angelegt oder gespeichert hast — oder aus mehreren Lebensmitteln zusammengestellt.</p>
+    <button class="btn btn--ghost btn--wide" id="act-myfoods" data-t="my.manage">Verwalten</button>
 
     <div class="rule rule--wide"></div>
 
@@ -212,7 +212,7 @@
   <div class="sheet-scrim" data-close></div>
   <div class="sheet-body">
     <div class="grip" aria-hidden="true"></div>
-    <h2 class="qty-name" data-t="new.title">Neues Lebensmittel</h2>
+    <h2 class="qty-name" id="new-heading" data-t="new.title">Neues Lebensmittel</h2>
     <p class="note" data-t="new.note">Nährwerte pro 100 g oder 100 ml.</p>
     <div class="fields">
       <label class="field"><span class="field-label" data-t="field.name">Name</span>
@@ -229,7 +229,47 @@
         <span class="field-in"><input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" id="n-portion" min="0" step="1" data-t-ph="field.optional"><em data-t="field.portionUnit">g je Stück</em></span></label>
     </div>
     <div class="actions">
+      <button class="btn btn--ghost" id="n-delete" data-t="qty.delete" hidden>Löschen</button>
       <button class="btn btn--solid btn--wide" id="n-save" data-t="new.save">Weiter zur Menge</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SHEET: KOMBINATION ============ -->
+<div class="sheet" id="sheet-combo" hidden>
+  <div class="sheet-scrim" data-close></div>
+  <div class="sheet-body">
+    <div class="grip" aria-hidden="true"></div>
+    <h2 class="qty-name" id="combo-heading" data-t="combo.title">Kombination anlegen</h2>
+    <p class="note" data-t="combo.note">Mische bestehende Lebensmittel zu einer neuen Portion, z. B. 50 g Fruchtmüsli, 500 g Skyr und 50 g Milch zu einer Frühstücksbowl.</p>
+    <div class="fields">
+      <label class="field"><span class="field-label" data-t="field.name">Name</span>
+        <span class="field-in"><input type="text" class="f-text" id="c-name" data-t-ph="combo.namePlaceholder"></span></label>
+    </div>
+
+    <div class="combo-list" id="combo-list"></div>
+    <button class="btn btn--ghost btn--wide" id="c-add-ingredient" data-t="combo.addIngredient">+ Zutat hinzufügen</button>
+
+    <div class="preview" id="combo-preview"></div>
+
+    <div class="actions">
+      <button class="btn btn--ghost" id="c-delete" data-t="qty.delete" hidden>Löschen</button>
+      <button class="btn btn--solid btn--wide" id="c-save" data-t="combo.save">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SEITE: MEINE LEBENSMITTEL ============ -->
+<div class="sheet sheet--full" id="sheet-myfoods" hidden>
+  <div class="page-wrap">
+    <header class="page-head page-head--sheet">
+      <button class="btn-back" data-close data-t-aria="nav.back">‹</button>
+      <h1 class="page-title" data-t="my.title">Meine Lebensmittel</h1>
+    </header>
+    <div class="mylist" id="mylist"></div>
+    <div class="actions actions--dock actions--dock-sheet">
+      <button class="btn btn--ghost" id="act-new-combo" data-t="my.addCombo">Kombination</button>
+      <button class="btn btn--solid" id="act-new-food" data-t="my.addFood">Lebensmittel</button>
     </div>
   </div>
 </div>
