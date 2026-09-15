@@ -27,13 +27,45 @@ Fällt etwas davon aus, geht es weiter: ohne Arbeiter im Haupt-Faden,
 ohne WebAssembly mit dem Leser des Browsers (`BarcodeDetector`) und
 zuletzt mit dem eigenen aus `js/ean.js`.
 
+## Mengen: Stück statt Gramm
+
+Wer einen Apfel isst, legt ihn nicht auf die Waage. Neben Gramm und
+Millilitern steht deshalb ein Auswahlfeld mit den Maßen, die zum
+Lebensmittel passen — „Apfel“, „Ei“, „Scheibe“, „Glas“, „EL“ — und
+daneben Plus und Minus. Zwei Äpfel sind zwei Mal Plus, nicht 364.
+
+Die Gewichte kommen aus drei Quellen (`js/units.js`):
+
+* **Von der Packung.** Steht bei Open Food Facts unter `serving_size`
+  ein „2 Kekse (25 g)“, dann wiegt ein Keks 12,5 g. Die Zahl allein
+  (`serving_quantity`) sagt das nicht — es steht nur im Wortlaut, und
+  der wurde bisher weggeworfen.
+* **Aus einer Tabelle**, für alles ohne Strichcode. Ein Apfel steht in
+  keiner Produktdatenbank. Die rund 70 Einträge sind die typischen
+  Haushaltsmaße des USDA (FoodData Central, `foodPortions`:
+  1 medium apple = 182 g) — gemeinfrei und dieselbe Grundlage, auf der
+  auch MyFitnessPal und Cronometer ihr „1 mittlerer Apfel“ bauen.
+* **Vom Nutzer**, der beim Anlegen ein Stückgewicht einträgt.
+
+Gesucht wird nur nach dem **letzten Wort** des Namens: „Apfel“ und
+„Bio-Apfel“ sind ein Apfel, „Apfelsaft“ und „Apfeljoghurt“ nicht. Im
+Deutschen steht das Grundwort hinten, und ein zusammengeschriebenes
+Wort ist ein anderes Lebensmittel. Dazu eine Sperrliste für „mit“,
+„getrocknet“, „Sauce“ und Ähnliches.
+
+Gespeichert wird weiter in Gramm. Menge und Maß stehen zusätzlich im
+Eintrag, damit „2 Äpfel“ beim Ändern wieder „2 Äpfel“ ist und nicht
+„364 g“ — und alte Einträge ohne diese Angabe bleiben lesbar.
+
 ## Tests
 
-Zwei Prüfläufe, beide ohne Abhängigkeiten und ohne Netz:
+Vier Prüfläufe, alle ohne Abhängigkeiten und ohne Netz:
 
 ```
 node test/search.test.js
 node test/scanner.test.js
+node test/units.test.js
+node test/flow.test.js
 ```
 
 Die Suche: Wertung der Treffer (deutsche Zusammensetzungen, Mehrzahl,
@@ -48,6 +80,19 @@ auf dem Handy, samt dem ausgelieferten WebAssembly; nur die
 Zeichenfläche ist nachgebaut (`test/canvas2d.js`), weil node keine hat.
 Jeder Fall muss gefunden werden, im Mittel in höchstens 2,5 Bildern,
 und kein einziger falsch gelesen.
+
+Die Maße: dass „Apfelsaft“ keine Äpfel zählt, dass aus „2 Kekse
+(25 g)“ ein Keks von 12,5 g wird, dass ein Wechsel der Einheit die
+Menge nicht verändert (182 g sind 1 Apfel, nicht 182), und dass Plus
+und Minus in Stücken zählen statt in Zehnergrammschritten.
+
+Der Weg zur Buchung: hier läuft `js/app.js` wirklich — gegen die
+echte `index.html` und ein nachgebautes Dokument (`test/dom.js`), so
+wie der Scanner gegen die nachgebaute Zeichenfläche läuft. Ein Apfel
+wird ausgewählt, zwei Mal Plus gedrückt, eingetragen, wieder
+aufgemacht, auf Gramm umgestellt und gelöscht. Dazu ein Eintrag aus
+der Zeit vor den Einheiten: er muss weiter richtig rechnen und in
+Gramm zurückkommen, nicht in Bechern.
 
 ## Veröffentlichen
 

@@ -50,6 +50,9 @@
 
   function g(v) { return v >= 10 ? nf0(v) : nf1(v); }
 
+  // Mengen: "2", nicht "2,0" — aber "0,5" bleibt "0,5"
+  function qf(v) { return Number.isInteger(v) ? nf0(v) : nf1(v); }
+
   /* ================= Ansicht wechseln ================= */
 
   function show(view) {
@@ -117,7 +120,7 @@
         const macros = MACROS.map(m => `${t('macro.' + m.k + '.short')} ${g(sums[m.k])}`).join(' · ');
         return `<button class="log-row" data-id="${e.id}">
           <span class="log-name">${esc(e.name)}
-            <span class="log-sub">${nf0(e.grams)} ${e.unit || 'g'} · ${macros}</span>
+            <span class="log-sub">${esc(entryAmount(e))} · ${macros}</span>
           </span>
           <span class="log-kcal">${nf0(Math.round(sums.kcal))}</span>
         </button>`;
@@ -125,6 +128,15 @@
     }
 
     $('#rc-code').textContent = `${day.replace(/-/g, ' ')} · ${list.length} ${t('receipt.pos')}`;
+  }
+
+  /* "2 Äpfel (364 g)" — das Gewicht bleibt sichtbar, damit eine
+     Schätzung nachvollziehbar ist. In Gramm gebucht bleibt es kurz. */
+  function entryAmount(e) {
+    const unit = e.unit || 'g';
+    const amount = `${nf0(e.grams)} ${unit}`;
+    if (!e.measure || e.measure.id === 'base' || !(e.qty > 0)) return amount;
+    return `${qf(e.qty)} ${Units.label(e.measure, e.qty)} (${amount})`;
   }
 
   $('#day-prev').addEventListener('click', () => { day = Store.shiftKey(day, -1); followToday = false; renderToday(); });
@@ -168,7 +180,10 @@
         out.push({
           barcode: e.barcode, name: e.name, brand: e.brand,
           unit: e.unit, per100: e.per100, portions: e.portions || [],
-          lastGrams: e.grams, source: 'log'
+          piece: e.piece || null,
+          servingText: e.servingText || '', servingGrams: e.servingGrams || 0,
+          lastGrams: e.grams, lastQty: e.qty, lastMeasure: e.measure || null,
+          source: 'log'
         });
         if (out.length >= 12) break;
       }
@@ -317,30 +332,67 @@
 
   const sheetQty = $('#sheet-qty');
   const amountIn = $('#qty-amount');
+  const measureSel = $('#qty-measure');
+  let measures = [];     // alle Maße, die zu diesem Lebensmittel passen
+  let measure = null;    // das gerade gewählte
+
+  function amountVal() {
+    return parseFloat(String(amountIn.value).replace(',', '.')) || 0;
+  }
+
+  function setAmount(v) {
+    amountIn.value = qf(Math.round(v * 100) / 100);
+  }
+
+  /* Im Auswahlfeld steht bei jedem Stück, wie schwer es angenommen
+     wird. Eine Schätzung, die man nicht sieht, ist eine Zumutung. */
+  function optionLabel(m, unit) {
+    return m.id === 'base' ? m.label : `${m.label} · ${g(m.base)} ${unit}`;
+  }
+
+  function renderMeasures(unit) {
+    measureSel.innerHTML = measures.map(m =>
+      `<option value="${esc(m.id)}"${m.id === (measure && measure.id) ? ' selected' : ''}>${esc(optionLabel(m, unit))}</option>`
+    ).join('');
+  }
 
   function openQty(food, isEdit) {
     pending = food;
     editing = isEdit ? food : null;
+    const unit = food.unit === 'ml' ? 'ml' : 'g';
 
-    $('#qty-brand').textContent = food.brand || food.barcode || t('qty.per100', { unit: food.unit || 'g' });
+    $('#qty-brand').textContent = food.brand || food.barcode || t('qty.per100', { unit });
     $('#qty-name').textContent = food.name;
-    $('#qty-unit').textContent = food.unit || 'g';
-    // Eine 1000-g-Packung ist keine sinnvolle Standardmenge. Nur Angaben,
-    // die nach einer Portion aussehen, werden vorgeschlagen.
-    const sane = (food.portions || []).find(p => p.grams >= 5 && p.grams <= 400);
-    amountIn.value = isEdit ? food.grams
-      : food.lastGrams ? food.lastGrams
-      : sane ? sane.grams
-      : 100;
 
-    // Schnellwahl
-    const chips = [];
-    (food.portions || []).forEach(p => chips.push({ label: p.label, grams: p.grams }));
-    [50, 100, 200].forEach(n => {
-      if (!chips.some(c => c.grams === n)) chips.push({ label: n + ' ' + (food.unit || 'g'), grams: n });
-    });
-    $('#qty-chips').innerHTML = chips.slice(0, 4)
-      .map(c => `<button class="chip" data-g="${c.grams}">${esc(c.label)}</button>`).join('');
+    measures = Units.measuresFor(food);
+
+    // Welches Maß? Beim Ändern das, was im Eintrag steht; sonst das
+    // vom letzten Mal; sonst das, was am besten passt.
+    const kept = isEdit ? food.measure : food.lastMeasure;
+    let pick = kept && kept.id ? Units.byId(measures, kept.id) : null;
+    // Ein Maß kann verschwinden — die Packung nennt keine Portion mehr,
+    // die Tabelle hat sich geändert. Dann wird es aus dem Eintrag selbst
+    // wiederhergestellt, damit eine alte Buchung nicht stillschweigend
+    // ihre Menge wechselt.
+    if (!pick && kept && kept.base > 0) { measures.push(kept); pick = kept; }
+
+    // Wer eine Menge mitbringt, aber kein Maß, hat in Gramm gebucht —
+    // Einträge von früher etwa. Die bleiben in Gramm, statt hier
+    // stillschweigend zu "1 Becher" zu werden.
+    const known = isEdit || food.lastGrams > 0;
+    measure = pick || (known ? Units.byId(measures, 'base') : Units.preferred(measures));
+
+    let qty;
+    if (isEdit) {
+      qty = pick && food.qty > 0 ? food.qty : (food.grams || 0) / measure.base;
+    } else if (food.lastGrams > 0) {
+      qty = pick && food.lastQty > 0 ? food.lastQty : food.lastGrams / measure.base;
+    } else {
+      qty = measure.id === 'base' ? 100 : 1;
+    }
+
+    setAmount(Units.tidy(qty, measure));
+    renderMeasures(unit);
 
     $('#qty-savewrap').hidden = isEdit || food.source === 'mine';
     $('#qty-save').checked = false;
@@ -353,12 +405,23 @@
 
   function renderPreview() {
     if (!pending) return;
-    const grams = parseFloat(String(amountIn.value).replace(',', '.')) || 0;
+    const unit = pending.unit === 'ml' ? 'ml' : 'g';
+    const base = measure ? measure.base : 1;
+    const grams = amountVal() * base;
     const f = grams / 100;
     const p = pending.per100;
     $('#qty-preview').innerHTML = `
       <div class="pv"><b>${nf0(Math.round(p.kcal * f))}</b><span>kcal</span></div>` +
       MACROS.map(m => `<div class="pv" data-k="${m.k}"><b>${g(p[m.k] * f)}</b><span>${esc(t('macro.' + m.k + '.abbr'))}</span></div>`).join('');
+    $('#qty-base').textContent = measure && measure.id !== 'base'
+      ? t('qty.base', { amount: g(grams), unit })
+      : '';
+  }
+
+  function bump(dir) {
+    if (!measure) return;
+    setAmount(Units.nudge(amountVal(), measure, dir));
+    renderPreview();
   }
 
   amountIn.addEventListener('input', renderPreview);
@@ -366,30 +429,44 @@
     if (e.key === 'Enter') { e.preventDefault(); $('#qty-confirm').click(); }
   });
 
-  $('#qty-chips').addEventListener('click', ev => {
-    const chip = ev.target.closest('.chip');
-    if (!chip) return;
-    amountIn.value = chip.dataset.g;
+  $('#qty-minus').addEventListener('click', () => bump(-1));
+  $('#qty-plus').addEventListener('click', () => bump(1));
+
+  // Beim Wechsel der Einheit bleibt die Menge dieselbe, nur anders
+  // gezählt: aus 182 g wird 1 Apfel, nicht 182 Äpfel.
+  measureSel.addEventListener('change', () => {
+    const next = Units.byId(measures, measureSel.value);
+    if (!next || !measure) return;
+    setAmount(Units.convert(amountVal(), measure, next));
+    measure = next;
     renderPreview();
   });
 
   $('#qty-confirm').addEventListener('click', () => {
-    const grams = parseFloat(String(amountIn.value).replace(',', '.')) || 0;
+    const m = measure || { id: 'base', label: pending.unit || 'g', base: 1 };
+    const qty = amountVal();
+    const grams = Math.round(qty * m.base * 100) / 100;
     if (grams <= 0) { toast(t('qty.badAmount')); return; }
+    const mark = { id: m.id, label: m.label, plural: m.plural || m.label, base: m.base };
 
     if (editing) {
-      Store.updateEntry(day, editing.id, { grams });
+      Store.updateEntry(day, editing.id, { grams, qty, measure: mark });
       toast(t('toast.updated'));
     } else {
       if ($('#qty-save').checked) {
         Store.saveFood({
           name: pending.name, brand: pending.brand, barcode: pending.barcode,
-          unit: pending.unit || 'g', per100: pending.per100, portions: pending.portions || []
+          unit: pending.unit || 'g', per100: pending.per100, portions: pending.portions || [],
+          piece: pending.piece || null,
+          servingText: pending.servingText || '', servingGrams: pending.servingGrams || 0
         });
       }
       Store.addEntry(day, {
         name: pending.name, brand: pending.brand || '', barcode: pending.barcode || null,
-        grams, unit: pending.unit || 'g', per100: pending.per100, portions: pending.portions || []
+        grams, qty, measure: mark,
+        unit: pending.unit || 'g', per100: pending.per100, portions: pending.portions || [],
+        piece: pending.piece || null,
+        servingText: pending.servingText || '', servingGrams: pending.servingGrams || 0
       });
       toast(t('toast.added', { name: pending.name }));
     }
@@ -410,6 +487,18 @@
   /* ================= Selbst anlegen ================= */
 
   const sheetNew = $('#sheet-new');
+  let newFoodUnit = 'g';
+
+  function setNewUnit(u) {
+    newFoodUnit = u === 'ml' ? 'ml' : 'g';
+    $$('#n-unit-seg .seg-btn').forEach(b => b.classList.toggle('is-on', b.dataset.unit === newFoodUnit));
+    $('#n-portion-unit').textContent = `${newFoodUnit} ${t('field.portionUnit')}`;
+  }
+
+  $('#n-unit-seg').addEventListener('click', ev => {
+    const b = ev.target.closest('.seg-btn');
+    if (b) setNewUnit(b.dataset.unit);
+  });
 
   // Vier Wege führen hierher: aus der Suche (dann geht es weiter zur Menge),
   // direkt aus "Meine Lebensmittel" (neu oder bearbeiten, dann wird sofort
@@ -423,8 +512,13 @@
     $('#n-protein').value = food ? (food.per100.protein || '') : '';
     $('#n-carbs').value = food ? (food.per100.carbs || '') : '';
     $('#n-fat').value = food ? (food.per100.fat || '') : '';
-    const portion = food && food.portions && food.portions[0] ? food.portions[0].grams : '';
-    $('#n-portion').value = portion || '';
+    setNewUnit(food ? food.unit : 'g');
+    // Ältere Einträge kennen nur "portions"; das Stück steht dort drin.
+    const piece = food && (food.piece ||
+      (food.portions && food.portions[0] && food.portions[0].grams <= 400
+        ? { grams: food.portions[0].grams, label: '' } : null));
+    $('#n-portion').value = piece && piece.grams ? piece.grams : '';
+    $('#n-piece').value = piece && piece.label ? piece.label : '';
     $('#n-delete').hidden = mode !== 'catalogEdit';
     $('#n-save').textContent = mode === 'search' ? t('new.save') : t('new.saveDirect');
     sheetNew.hidden = false;
@@ -446,13 +540,20 @@
     const name = $('#n-name').value.trim();
     if (!name) { toast(t('new.noName')); return; }
     const portion = numOf('#n-portion');
+    const pieceName = $('#n-piece').value.trim();
     const foodData = {
       name,
       brand: '',
       barcode: null,
-      unit: 'g',
+      unit: newFoodUnit,
       per100: { kcal: numOf('#n-kcal'), protein: numOf('#n-protein'), carbs: numOf('#n-carbs'), fat: numOf('#n-fat') },
-      portions: portion > 0 ? [{ label: t('food.piece', { g: nf0(portion) }), grams: portion }] : []
+      // Das Stückgewicht wird als eigenes Maß geführt, nicht mehr als
+      // Portion: so steht später "2 Eier" im Auswahlfeld und nicht
+      // "2 × 1 Stück (50 g)".
+      piece: portion > 0
+        ? { label: pieceName || t('unit.piece'), plural: pieceName || t('unit.pieces'), grams: portion }
+        : null,
+      portions: []
     };
 
     if (newFoodMode === 'catalogEdit') {
@@ -467,7 +568,7 @@
       openMyFoods();
     } else if (newFoodMode === 'comboIngredient') {
       sheetNew.hidden = true;
-      addComboIngredient(Object.assign({ grams: portion > 0 ? portion : 100 }, foodData));
+      addComboIngredient(foodData);
       sheetCombo.hidden = false;
     } else {
       sheetNew.hidden = true;
@@ -539,8 +640,10 @@
   }
 
   function addComboIngredient(food) {
-    const sane = (food.portions || []).find(p => p.grams >= 5 && p.grams <= 400);
-    const grams = food.grams || food.lastGrams || (sane ? sane.grams : 100);
+    // Ein Apfel als Zutat startet bei einem Apfel, nicht bei 100 g.
+    const m = Units.preferred(Units.measuresFor(food));
+    const grams = food.grams || food.lastGrams
+      || (m.id === 'base' ? 100 : Math.round(m.base));
     combo.ingredients.push({
       name: food.name,
       unit: food.unit || 'g',
@@ -587,6 +690,9 @@
     const grams = Math.round(tot.grams);
     const foodData = {
       name, brand: '', barcode: null, unit: 'g', per100,
+      // Eine Kombination isst man als Ganzes oder als halbe — deshalb
+      // ist die ganze Portion hier ein Stück, kein Packungsinhalt.
+      piece: { label: t('combo.piece'), plural: t('combo.pieces'), grams },
       portions: [{ label: t('combo.wholePortion', { g: nf0(grams) }), grams }],
       recipe: combo.ingredients.map(ing => ({ name: ing.name, unit: ing.unit, per100: ing.per100, grams: ing.grams })),
       source: 'mine'
