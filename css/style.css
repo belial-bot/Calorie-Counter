@@ -563,29 +563,57 @@ input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; marg
 /* Menge */
 .qty-name { margin: .1rem 0 1.1rem; font-size: 1.4rem; font-weight: 700; font-variation-settings: "wdth" 90; line-height: 1.15; }
 .qty-row { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
-.qty-row input {
-  width: 6rem;
-  padding: .55rem .6rem;
-  background: var(--paper-2);
+
+/* Weniger / Menge / Mehr — ein Block, damit die Daumen nebeneinander
+   liegen und das Feld beim Tippen nicht springt. */
+.stepper {
+  display: flex;
+  align-items: stretch;
   border: 1px solid var(--rule);
   border-radius: var(--r);
+  background: var(--paper-2);
+  overflow: hidden;
+}
+.step {
+  width: 2.75rem;
+  flex: none;
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink-2);
+  transition: background-color .12s ease;
+}
+.step:active { background: var(--rule); color: var(--ink); }
+.qty-row input {
+  width: 5rem;
+  padding: .55rem .4rem;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
+  border-radius: 0;
   font-size: 1.5rem; font-weight: 700;
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: center;
   -webkit-appearance: none;
 }
-.qty-row input:focus { outline: none; border-color: var(--ink); }
-.qty-unit { font-size: .875rem; color: var(--ink-3); margin-right: .35rem; }
-.chips { display: flex; flex-wrap: wrap; gap: .35rem; }
-.chip {
-  padding: .35rem .6rem;
-  border: 1px solid var(--rule);
-  border-radius: 999px;
-  font-size: .75rem;
-  color: var(--ink-2);
-  white-space: nowrap;
+.qty-row input:focus { outline: none; }
+.stepper:focus-within { border-color: var(--ink); }
+
+.select-wrap--unit { flex: 1; min-width: 8rem; margin-top: 0; }
+.select-wrap--unit select { min-height: 3.05rem; font-size: .875rem; }
+
+.qty-base {
+  margin: .5rem 0 0;
+  font-size: .8125rem;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  min-height: 1.2em;
 }
-.chip:active { background: var(--rule); }
+
+.seg--tight { max-width: 11rem; }
+.seg--tight .seg-btn { min-height: 2.1rem; }
+.n-portion-unit { font-style: normal; }
 
 .preview {
   display: grid;

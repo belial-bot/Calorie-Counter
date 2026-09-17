@@ -191,10 +191,16 @@
     <h2 class="qty-name" id="qty-name">—</h2>
 
     <div class="qty-row">
-      <input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" id="qty-amount" min="0" step="1" value="100">
-      <span class="qty-unit" id="qty-unit">g</span>
-      <div class="chips" id="qty-chips"></div>
+      <div class="stepper">
+        <button class="step" id="qty-minus" type="button" data-t-aria="qty.less">−</button>
+        <input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" id="qty-amount" min="0" step="1" value="100">
+        <button class="step" id="qty-plus" type="button" data-t-aria="qty.more">+</button>
+      </div>
+      <div class="select-wrap select-wrap--unit">
+        <select id="qty-measure" data-t-aria="qty.unit"></select>
+      </div>
     </div>
+    <p class="qty-base" id="qty-base"></p>
 
     <div class="preview" id="qty-preview"></div>
 
@@ -216,6 +222,10 @@
     <div class="grip" aria-hidden="true"></div>
     <h2 class="qty-name" id="new-heading" data-t="new.title">Neues Lebensmittel</h2>
     <p class="note" data-t="new.note">Nährwerte pro 100 g oder 100 ml.</p>
+    <div class="seg seg--tight" id="n-unit-seg" role="group" aria-label="g / ml">
+      <button class="seg-btn is-on" type="button" data-unit="g">g</button>
+      <button class="seg-btn" type="button" data-unit="ml">ml</button>
+    </div>
     <div class="fields">
       <label class="field"><span class="field-label" data-t="field.name">Name</span>
         <span class="field-in"><input type="text" class="f-text" id="n-name" data-t-ph="new.namePlaceholder"></span></label>
@@ -227,8 +237,10 @@
         <span class="field-in"><input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" id="n-carbs" placeholder="0" min="0" step="0.1"><em>g</em></span></label>
       <label class="field" data-k="fat"><span class="field-label" data-t="macro.fat">Fett</span>
         <span class="field-in"><input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" id="n-fat" placeholder="0" min="0" step="0.1"><em>g</em></span></label>
-      <label class="field"><span class="field-label" data-t="field.portion">Portion</span>
-        <span class="field-in"><input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" id="n-portion" min="0" step="1" data-t-ph="field.optional"><em data-t="field.portionUnit">g je Stück</em></span></label>
+      <label class="field"><span class="field-label" data-t="field.portion">Ein Stück wiegt</span>
+        <span class="field-in"><input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" id="n-portion" min="0" step="1" data-t-ph="field.optional"><em class="n-portion-unit" id="n-portion-unit">g</em></span></label>
+      <label class="field"><span class="field-label" data-t="field.pieceName">Ein Stück heißt</span>
+        <span class="field-in"><input type="text" class="f-text" id="n-piece" data-t-ph="unit.piece"></span></label>
     </div>
     <div class="actions">
       <button class="btn btn--ghost" id="n-delete" data-t="qty.delete" hidden>Löschen</button>
@@ -293,6 +305,7 @@
 <script src="./js/store.js"></script>
 <script src="./js/i18n.js"></script>
 <script src="./js/search.js"></script>
+<script src="./js/units.js"></script>
 <script src="./js/off.js"></script>
 <script src="./js/ean.js"></script>
 <script src="./js/scan-engine.js"></script>

@@ -29,7 +29,7 @@ const OFF = (() => {
     const l = I18n.lang === 'de' ? 'de' : 'en';
     return [
       'code', 'product_name', `product_name_${l}`, 'generic_name', `generic_name_${l}`,
-      'brands', 'nutriments', 'serving_size', 'serving_quantity',
+      'brands', 'nutriments', 'serving_size', 'serving_quantity', 'serving_quantity_unit',
       'quantity', 'product_quantity', 'product_quantity_unit',
       'unique_scans_n', 'countries_tags', 'categories_tags'
     ].join(',');
@@ -150,7 +150,9 @@ const OFF = (() => {
     if (!name) return null;
     const nutr = per100(p.nutriments);
     if (!nutr.kcal && !nutr.protein && !nutr.carbs && !nutr.fat) return null;
-    const unit = (p.product_quantity_unit === 'ml' || /\bml\b|\bl\b/i.test(p.quantity || '')) ? 'ml' : 'g';
+    const unit = (p.product_quantity_unit === 'ml' || p.serving_quantity_unit === 'ml'
+      || /\bml\b|\bl\b/i.test(p.quantity || '')) ? 'ml' : 'g';
+    const serving = num(p.serving_quantity);
     const tag = COUNTRIES[region];
     return {
       barcode: p.code || null,
@@ -159,6 +161,10 @@ const OFF = (() => {
       unit,
       per100: nutr,
       portions: portions(p),
+      // Der Wortlaut der Portionsangabe, ungefiltert: "2 Kekse (25 g)"
+      // sagt, was ein Stück wiegt — das steht in keiner Zahl.
+      servingText: text(p.serving_size) || '',
+      servingGrams: serving && serving > 0 && serving < 2000 ? serving : 0,
       scans: num(p.unique_scans_n) || 0,
       cats: Array.isArray(p.categories_tags) ? p.categories_tags : [],
       local: !!(tag && Array.isArray(p.countries_tags) && p.countries_tags.includes(tag)),
