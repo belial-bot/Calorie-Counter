@@ -252,6 +252,27 @@ test('Halbe Stücke ja, Drittel nein', () => {
   eq(Units.convert(250, base, piece), 1.5, '250 g sind anderthalb');
 });
 
+test('Ein Wechsel des Maßes beginnt bei einem ganzen Stück', () => {
+  // Weihenstephan Joghurt Natur: Portion 100 g, Becher 500 g
+  const ms = Units.measuresFor(food({
+    name: 'Joghurt Natur 3,5 % Fett', barcode: '4008452011004',
+    portions: [{ label: 'Portion (100 g)', grams: 100 }, { label: 'Packung (500 g)', grams: 500 }]
+  }));
+  const base = find(ms, 'base'), serving = find(ms, 'portion-0'), pack = find(ms, 'portion-1');
+  eq(Units.switchTo(1, pack, serving), 1, '1 Packung → 1 Portion, nicht 5');
+  eq(Units.switchTo(1, serving, pack), 1, '1 Portion → 1 Packung, keine halbe');
+  eq(Units.switchTo(3, serving, pack), 1, 'auch von mehreren aus');
+  eq(Units.switchTo(1, pack, base), 500, 'zu Gramm hin bleibt das Gewicht');
+  eq(Units.switchTo(0.5, serving, base), 50, 'auch krumm');
+  eq(Units.switchTo(250, base, pack), 1, 'aus Gramm ein ganzer Becher');
+  eq(Units.switchTo(0, pack, base), 100, 'aus nichts werden 100 g');
+
+  // Hin und her darf nichts verschieben: Packung → Portion → Packung
+  let qty = 1, m = pack;
+  [serving, pack, serving, pack].forEach(next => { qty = Units.switchTo(qty, m, next); m = next; });
+  eq(qty * m.base, 500, 'nach viermal Umschalten wieder 500 g');
+});
+
 test('Plus und Minus zählen in Stücken, nicht in Gramm', () => {
   const ms = Units.measuresFor(food({ name: 'Apfel' }));
   const base = find(ms, 'base'), piece = find(ms, 'piece');

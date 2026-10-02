@@ -339,6 +339,22 @@ test('Ohne Nährwerte kein Treffer', () => {
   eq(OFF.normalise(RAW_SEARCH_HITS[4], 'de'), null, 'Eintrag ohne Werte fliegt raus');
 });
 
+test('Verrutschte Kalorien werden an den Nährwerten gemessen', () => {
+  // Weihenstephan Joghurt Natur 3,5 %: Becher sagt 303 kJ / 72 kcal,
+  // 4,4 g Eiweiß, 5,1 g Kohlenhydrate, 3,5 g Fett je 100 g.
+  const yog = extra => OFF.per100(Object.assign({
+    'proteins_100g': 4.4, 'carbohydrates_100g': 5.1, 'fat_100g': 3.5
+  }, extra));
+  eq(yog({ 'energy-kcal_100g': 72, 'energy-kj_100g': 303 }).kcal, 72, 'richtige Werte bleiben');
+  eq(yog({ 'energy-kcal_100g': 14.4, 'energy-kj_100g': 303 }).kcal, 72.4, 'ein Fünftel: die Kilojoule zählen');
+  eq(yog({ 'energy-kcal_100g': 303 }).kcal, 72.4, 'Kilojoule im Kalorienfeld');
+  eq(yog({ 'energy-kcal_100g': 14.4 }).kcal, 69.5, 'sonst die Schätzung aus den Nährwerten');
+  eq(yog({}).kcal, 69.5, 'ganz ohne Kalorien ebenso');
+  // Alkohol und Zuckeralkohole dürfen von der Schätzung abweichen
+  eq(OFF.per100({ 'energy-kcal_100g': 43, 'carbohydrates_100g': 3, 'proteins_100g': 0.5 }).kcal, 43, 'Bier');
+  eq(OFF.per100({ 'energy-kcal_100g': 240, 'carbohydrates_100g': 95 }).kcal, 240, 'zuckerfreie Bonbons');
+});
+
 test('Kilojoule werden zu Kilokalorien', () => {
   const p = OFF.normalise(RAW_SEARCH_HITS[5], 'de');
   ok(p && Math.abs(p.per100.kcal - 741) < 2, `3100 kJ sind rund 741 kcal, sind: ${p && p.per100.kcal}`);
