@@ -432,12 +432,12 @@
   $('#qty-minus').addEventListener('click', () => bump(-1));
   $('#qty-plus').addEventListener('click', () => bump(1));
 
-  // Beim Wechsel der Einheit bleibt die Menge dieselbe, nur anders
-  // gezählt: aus 182 g wird 1 Apfel, nicht 182 Äpfel.
+  // Beim Wechsel der Einheit: zu Gramm hin bleibt das Gewicht, zu
+  // jedem anderen Maß hin steht ein ganzes Stück da (Units.switchTo).
   measureSel.addEventListener('change', () => {
     const next = Units.byId(measures, measureSel.value);
     if (!next || !measure) return;
-    setAmount(Units.convert(amountVal(), measure, next));
+    setAmount(Units.switchTo(amountVal(), measure, next));
     measure = next;
     renderPreview();
   });

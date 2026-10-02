@@ -99,17 +99,44 @@ const OFF = (() => {
     return Array.isArray(tags) && tags.length ? fromTag(tags[0]) : '';
   }
 
+  /* Die Kalorien werden gegengerechnet, bevor sie jemand isst.
+     Open Food Facts ist von Hand befüllt, und das Kalorienfeld ist das
+     fehleranfälligste: beim Weihenstephan Joghurt Natur 3,5 % standen
+     14,4 kcal je 100 g drin — ein Fünftel der 72 kcal auf dem Becher,
+     offenbar durch fünf geteilt (500 g Becher). Eiweiß, Fett und
+     Kohlenhydrate stimmten aber.
+
+     Aus denen ergibt sich eine Schätzung (4 kcal je g Eiweiß und
+     Kohlenhydrate, 9 je g Fett). Liegt das Kalorienfeld weit darunter
+     oder weit darüber, gilt es als verrutscht, und es zählt, was
+     sonst passt: die Kilojoule, ein Kilojoule-Wert im Kalorienfeld,
+     zuletzt die Schätzung selbst.
+
+     Die Spanne ist mit Absicht weit. Bier und Wein haben Alkohol
+     (mehr Kalorien als die Schätzung), zuckerfreie Bonbons Zuckeralkohole
+     (weniger) — die sollen durchgehen. Ein Fünftel oder das Vierfache
+     nicht. */
   function per100(n = {}) {
-    let kcal = num(n['energy-kcal_100g']);
-    if (kcal === null) {
-      const kj = num(n['energy-kj_100g']) ?? num(n['energy_100g']);
-      if (kj !== null) kcal = kj / 4.184;
+    const protein = num(n['proteins_100g']) ?? 0;
+    const carbs   = num(n['carbohydrates_100g']) ?? 0;
+    const fat     = num(n['fat_100g']) ?? 0;
+    const est = 4 * protein + 4 * carbs + 9 * fat;
+    const fits = v => v !== null && v >= 0 && (est < 20 || (v >= est * 0.5 && v <= est * 2.5));
+
+    const kcalField = num(n['energy-kcal_100g']);
+    const kj = num(n['energy-kj_100g']) ?? num(n['energy_100g']);
+    const candidates = [
+      kcalField,
+      kj === null ? null : kj / 4.184,
+      kcalField === null ? null : kcalField / 4.184
+    ];
+    let kcal = candidates.find(fits);
+    if (kcal === undefined) {
+      kcal = est > 0 ? est : (kcalField ?? (kj === null ? null : kj / 4.184));
     }
     return {
       kcal:    kcal === null ? 0 : Math.round(kcal * 10) / 10,
-      protein: num(n['proteins_100g']) ?? 0,
-      carbs:   num(n['carbohydrates_100g']) ?? 0,
-      fat:     num(n['fat_100g']) ?? 0
+      protein, carbs, fat
     };
   }
 
@@ -359,7 +386,7 @@ const OFF = (() => {
 
   /* Die Fassung im Schlüssel sorgt dafür, dass nach einer Änderung an der
      Abfrage nicht noch einen Tag lang die alten Treffer erscheinen. */
-  const cacheKey = (region, q) => 'v2|' + region + '|' + Rank.norm(q);
+  const cacheKey = (region, q) => 'v3|' + region + '|' + Rank.norm(q);
 
   function search(query) {
     const q = query.trim();

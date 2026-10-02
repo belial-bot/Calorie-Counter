@@ -376,6 +376,16 @@ const Units = (() => {
     return tidy(grams / to.base, to);
   }
 
+  /* Beim Wechsel des Maßes: in Gramm steht, was es vorher wog —
+     aus 1 Packung werden 500 g. Jedes andere Maß beginnt bei einem
+     ganzen Stück: aus 1 Portion (100 g) wird 1 Packung, nicht eine
+     halbe. Umrechnen hieße hier runden, und gerundet auf halbe
+     Packungen wären aus 100 g still 250 g geworden. */
+  function switchTo(qty, from, to) {
+    if (to.id === 'base') return tidy((Number(qty) || 0) * from.base, to) || 100;
+    return 1;
+  }
+
   /* Die Schrittweite von + und −: bei Gramm in Zehnern, bei Stücken
      einzeln — und unterhalb eines Stücks in halben. */
   function stepFor(m, qty) {
@@ -402,7 +412,7 @@ const Units = (() => {
   }
 
   return {
-    measuresFor, byId, preferred, convert, stepFor, nudge, label, tidy,
+    measuresFor, byId, preferred, convert, switchTo, stepFor, nudge, label, tidy,
     parseServingPieces, matchPiece, matchSpoon, PIECES, SPOONS
   };
 })();
