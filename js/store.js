@@ -43,8 +43,17 @@ const Store = (() => {
       localStorage.setItem(KEY, JSON.stringify(data));
       return true;
     } catch (e) {
-      console.error('Speichern fehlgeschlagen', e);
-      return false;
+      // Voll? Die Zwischenspeicher lassen sich neu holen, Einträge nicht —
+      // also zuerst sie opfern, statt eine Buchung stillschweigend zu verlieren.
+      data.cache = {};
+      data.scache = {};
+      try {
+        localStorage.setItem(KEY, JSON.stringify(data));
+        return true;
+      } catch (e2) {
+        console.error('Speichern fehlgeschlagen', e2);
+        return false;
+      }
     }
   }
 
@@ -192,15 +201,6 @@ const Store = (() => {
     save();
   }
 
-  function searchFoods(q) {
-    const s = q.trim().toLowerCase();
-    if (!s) return data.foods.slice(0, 8);
-    return data.foods.filter(f =>
-      f.name.toLowerCase().includes(s) ||
-      (f.brand || '').toLowerCase().includes(s)
-    ).slice(0, 12);
-  }
-
   /* ---------- Produkt-Cache ---------- */
 
   function cacheProduct(code, product) {
@@ -275,7 +275,7 @@ const Store = (() => {
     entries, addEntry, updateEntry, removeEntry,
     entryTotals, dayTotals,
     goals, setGoals, lang, setLang, region, setRegion, REGIONS,
-    foods, saveFood, updateFood, removeFood, searchFoods,
+    foods, saveFood, updateFood, removeFood,
     cacheProduct, cachedProduct, cacheSearch, cachedSearch,
     exportAll, importAll, recentDays, isFresh, uid
   };
