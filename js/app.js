@@ -163,6 +163,9 @@
     sheetAdd.hidden = false;
     qInput.value = '';
     $('#q-clear').hidden = true;
+    clearTimeout(searchTimer);
+    searchSeq++;
+    $('#results').classList.remove('is-busy');
     renderResults(recentFoods(), t('search.recent'));
     setTimeout(() => qInput.focus(), 120);
   }
@@ -258,7 +261,7 @@
     const q = qInput.value.trim();
     $('#q-clear').hidden = !q;
     clearTimeout(searchTimer);
-    if (!q) { renderResults(recentFoods(), t('search.recent')); return; }
+    if (!q) { searchSeq++; $('#results').classList.remove('is-busy'); renderResults(recentFoods(), t('search.recent')); return; }
 
     const mine = localMatches(q);
     if (mine.length) renderResults(mine, t('search.mine'));
@@ -281,6 +284,9 @@
   $('#q-clear').addEventListener('click', () => {
     qInput.value = '';
     $('#q-clear').hidden = true;
+    clearTimeout(searchTimer);
+    searchSeq++;                         // eine laufende Suche darf die Liste nicht mehr überschreiben
+    $('#results').classList.remove('is-busy');
     renderResults(recentFoods(), t('search.recent'));
     qInput.focus();
   });

@@ -17,9 +17,13 @@ const fs = require('fs');
 let passed = 0, failed = 0;
 const failures = [];
 
+const pendingTests = [];
 function test(name, fn) {
-  try { fn(); passed++; }
-  catch (e) { failed++; failures.push(`${name}\n    ${e.message}`); }
+  // Tests laufen nacheinander; ein async-Test hält die folgenden an.
+  pendingTests.push(async () => {
+    try { await fn(); passed++; }
+    catch (e) { failed++; failures.push(`${name}\n    ${e.message}`); }
+  });
 }
 
 function ok(cond, msg) { if (!cond) throw new Error(msg || 'erwartet: wahr'); }
@@ -331,9 +335,47 @@ test('Auf ml umgestellt wird in ml gebucht', () => {
   clearDay();
 });
 
+test('Voller Speicher: erst die Zwischenspeicher opfern, die Buchung bleibt', () => {
+  clearDay();
+  Store.cacheSearch('probe', [{ name: 'x'.repeat(50) }]);
+  const realSet = localStorage.setItem;
+  // Ein Speicher, der nur kleine Stände annimmt, solange der Zwischenspeicher gefüllt ist
+  localStorage.setItem = (k, v) => {
+    if (v.includes('"probe"')) throw new Error('QuotaExceededError');
+    return realSet(k, v);
+  };
+  try {
+    Store.addEntry(today(), { name: 'Brot', grams: 50, per100: { kcal: 250 } });
+  } finally { localStorage.setItem = realSet; }
+  const saved = JSON.parse(localStorage.getItem('zettel.v1'));
+  ok(saved.days[today()] && saved.days[today()].length === 1, 'die Buchung ging verloren');
+  eq(saved.scache, {}, 'Suchspeicher wurde nicht geleert');
+  clearDay();
+});
+
+test('Eine laufende Suche überschreibt die geleerte Liste nicht', async () => {
+  const real = OFF.search;
+  let release;
+  OFF.search = () => new Promise(r => { release = () => r([APPLE]); });
+  try {
+    $('#act-add').dispatch('click');
+    $('#q').value = 'apfel';
+    $('#q').dispatch('input');
+    await new Promise(r => setTimeout(r, 450));   // Suche ist unterwegs
+    $('#q-clear').dispatch('click');
+    release();
+    await new Promise(r => setTimeout(r, 20));
+    ok(!/Apfel/.test($('#results').innerHTML), 'späte Treffer stehen in der geleerten Liste');
+    ok(!$('#results').classList.contains('is-busy'), 'is-busy bleibt hängen');
+  } finally { OFF.search = real; $('#sheet-add').hidden = true; }
+});
+
 /* ---------- Ergebnis ---------- */
 
+(async () => {
+for (const run of pendingTests) await run();
 console.log('');
 failures.forEach(f => console.log('  ✗ ' + f + '\n'));
 console.log(`${passed}/${passed + failed} Prüfungen bestanden`);
 process.exit(failed ? 1 : 0);
+})();

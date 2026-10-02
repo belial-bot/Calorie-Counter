@@ -3,7 +3,7 @@
    Version hochzählen, wenn du Dateien änderst.
    ========================================================= */
 
-const VERSION = 'zettel-v12';
+const VERSION = 'zettel-v13';
 const SHELL = `${VERSION}-shell`;
 const RUNTIME = `${VERSION}-runtime`;
 
@@ -26,6 +26,7 @@ const FILES = [
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/maskable-512.png',
   './icons/apple-touch-icon.png'
 ];
 
